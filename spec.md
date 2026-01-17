@@ -46,6 +46,65 @@ Ship a single npm package: `openskills-ai`.
 - Publish via direct `PUT` of markdown content
 - `Content-Type: text/markdown`
 
+### Skill Content Schema
+
+Skills are markdown files with YAML frontmatter. The frontmatter follows the OpenCode skill format for compatibility.
+
+#### Frontmatter Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Skill name (must match URL path) |
+| `description` | Yes | 1-1024 characters, used for discovery |
+| `license` | No | License identifier (e.g., "MIT") |
+| `compatibility` | No | Tool compatibility hint (e.g., "opencode") |
+| `metadata` | No | Arbitrary key-value pairs (string to string) |
+
+#### Name Validation
+
+The `name` field must:
+- Be 1-64 characters
+- Be lowercase alphanumeric with single hyphen separators
+- Not start or end with `-`
+- Not contain consecutive `--`
+- Match the skill name in the URL path
+
+Regex: `^[a-z0-9]+(-[a-z0-9]+)*$`
+
+#### Example Skill Content
+
+```markdown
+---
+name: docker-compose
+description: Best practices for Docker Compose configuration and multi-container orchestration
+license: MIT
+compatibility: opencode
+metadata:
+  audience: engineers
+  workflow: devops
+---
+
+## What I do
+
+- Guide Docker Compose file structure
+- Recommend networking and volume patterns
+- Suggest health check configurations
+
+## When to use me
+
+Use this when setting up multi-container applications with Docker Compose.
+```
+
+#### Validation on Publish
+
+When a skill is published:
+1. Parse YAML frontmatter from markdown content
+2. Validate frontmatter against the schema
+3. Verify `name` field matches the URL path parameter
+4. Store the full content (frontmatter + body) as-is
+
+The registry stores skills verbatim and serves them as-is. Frontmatter validation ensures discoverability and consistency, but the body content is free-form markdown.
+
 ---
 
 ## Identity & Authentication
@@ -350,6 +409,45 @@ Pages (MVP):
 - Home: search + top skills + create button
 - Namespace profile: skills list
 - Skill detail: rendered markdown + edit affordance
+- Create skill: form to publish a new skill (auth required)
+- Edit skill: form to publish a new version of an existing skill (auth required)
+
+### Create Skill Page
+
+Route: `/@:namespace/:name/new` or `/new` (with namespace/name inputs)
+
+Form fields:
+- Namespace (pre-filled from authenticated user, read-only or dropdown if user has multiple)
+- Skill name (validated client-side against name regex)
+- Version (default "1.0.0", validated as semver)
+- Content (textarea with markdown + frontmatter template)
+
+Behavior:
+- Pre-populate content textarea with frontmatter template
+- Client-side validation before submit
+- POST to API, redirect to skill detail on success
+- Show validation errors inline
+
+### Edit Skill Page
+
+Route: `/@:namespace/:name/edit`
+
+Form fields:
+- Version (required, must be higher than current latest)
+- Content (textarea pre-filled with latest version content)
+
+Behavior:
+- Load current latest version content into textarea
+- Suggest next patch/minor/major version
+- Client-side validation before submit
+- POST to API, redirect to skill detail on success
+- Show validation errors inline
+
+### Authentication for UI Forms
+
+- Create/Edit pages require authentication
+- If user is not authenticated, show login prompt or redirect
+- Forms only allow publishing to namespaces the user owns
 
 Design references (wireframes):
 - `design/home-wireframe.png`
