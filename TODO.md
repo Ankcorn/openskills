@@ -162,51 +162,51 @@ Build in order so each feature can be tested via public methods immediately.
 
 ## 7. Skill Content Schema (Frontmatter)
 
-- [ ] Create frontmatter schema in `src/types/` (name, description, license, compatibility, metadata)
-- [ ] Create frontmatter parser utility (extract YAML from markdown)
-- [ ] Add frontmatter validation to `publishSkill` in core
-- [ ] Verify `name` field matches URL path parameter on publish
-- [ ] **Test**: publish with valid frontmatter succeeds
-- [ ] **Test**: publish with missing required frontmatter fields returns INVALID_INPUT
-- [ ] **Test**: publish with mismatched `name` field returns INVALID_INPUT
-- [ ] **Test**: publish with invalid `name` format returns INVALID_INPUT
-- [ ] **Test**: publish with description > 1024 chars returns INVALID_INPUT
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+- [x] Create frontmatter schema in `src/types/` (name, description, license, compatibility, metadata)
+- [x] Create frontmatter parser utility (extract YAML from markdown)
+- [x] Add frontmatter validation to `publishSkill` in core
+- [x] Verify `name` field matches URL path parameter on publish
+- [x] **Test**: publish with valid frontmatter succeeds
+- [x] **Test**: publish with missing required frontmatter fields returns INVALID_INPUT
+- [x] **Test**: publish with mismatched `name` field returns INVALID_INPUT
+- [x] **Test**: publish with invalid `name` format returns INVALID_INPUT
+- [x] **Test**: publish with description > 1024 chars returns INVALID_INPUT
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
 ## 8. Web UI - Create & Edit Pages
 
 ### 8.1 Create Skill Page
 
-- [ ] Create route `/@:namespace/:name/new` (or `/new`)
-- [ ] Build create skill form component (namespace, name, version, content)
-- [ ] Add frontmatter template pre-population in textarea
-- [ ] Add client-side validation (name regex, semver, required fields)
-- [ ] Wire form submission to `PUT /api/v1/skills/@:namespace/:name/versions/:version`
-- [ ] Handle success (redirect to skill detail page)
-- [ ] Handle errors (display inline validation errors)
-- [ ] Add auth gate (require authentication to view page)
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+- [x] Create route `/create`
+- [x] Build create skill form component (namespace, name, version, content)
+- [x] Add frontmatter template pre-population in textarea
+- [x] Add client-side validation (name regex, semver, required fields)
+- [x] Wire form submission to publish via core
+- [x] Handle success (redirect to skill detail page)
+- [x] Handle errors (display inline validation errors)
+- [x] Add auth gate (require authentication to view page)
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
 ### 8.2 Edit Skill Page
 
-- [ ] Create route `/@:namespace/:name/edit`
-- [ ] Build edit skill form component (version, content)
-- [ ] Pre-fill content textarea with latest version
-- [ ] Add version suggestion (next patch/minor/major)
-- [ ] Add client-side validation (semver, must be > current latest)
-- [ ] Wire form submission to `PUT /api/v1/skills/@:namespace/:name/versions/:version`
-- [ ] Handle success (redirect to skill detail page)
-- [ ] Handle errors (display inline validation errors)
-- [ ] Add auth gate (require authentication, must own namespace)
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+- [x] Create route `/@:namespace/:name/edit`
+- [x] Build edit skill form component (version, content)
+- [x] Pre-fill content textarea with latest version
+- [x] Add version suggestion (next patch/minor/major)
+- [x] Add client-side validation (semver)
+- [x] Wire form submission to publish via core
+- [x] Handle success (redirect to skill detail page)
+- [x] Handle errors (display inline validation errors)
+- [x] Add auth gate (require authentication, must own namespace)
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
 ### 8.3 UI Polish
 
-- [ ] Add "Create Skill" button to home page (links to create page)
-- [ ] Add "New Version" button to skill detail page (links to edit page)
-- [ ] Style forms consistent with existing UI (Tailwind + Space Mono)
-- [ ] Add loading states during form submission
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+- [x] Add "Create Skill" button to home page (links to create page)
+- [x] Add "New Version" button to skill detail page (links to edit page)
+- [x] Style forms consistent with existing UI (Tailwind + Space Mono)
+- [ ] Add loading states during form submission (deferred - requires client JS)
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
 ## 9. MCP (Deferred)
 

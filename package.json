@@ -8,13 +8,32 @@
 		"start": "wrangler dev",
 		"test": "vitest",
 		"typecheck": "tsgo -p tsconfig.json",
-		"typegen": "wrangler types"
+		"typegen": "wrangler types",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"format": "biome format --write .",
+		"build:css": "npx @tailwindcss/cli -i ./src/ui/input.css -o ./public/output.css",
+		"build:css:watch": "npx @tailwindcss/cli -i ./src/ui/input.css -o ./public/output.css --watch"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "2.3.11",
 		"@cloudflare/vitest-pool-workers": "^0.8.19",
 		"@typescript/native-preview": "^7.0.0-dev.20260117.1",
 		"typescript": "^5.5.2",
 		"vitest": "~3.2.0",
 		"wrangler": "^4.59.2"
+	},
+	"dependencies": {
+		"@hono/standard-validator": "^0.2.2",
+		"@tailwindcss/cli": "^4.1.18",
+		"@tailwindcss/typography": "^0.5.19",
+		"better-result": "^2.3.0",
+		"hatchlet": "^0.0.4",
+		"hono": "^4.11.4",
+		"hono-openapi": "^1.1.2",
+		"marked": "^17.0.1",
+		"nanoid": "^5.1.6",
+		"tailwindcss": "^4.1.18",
+		"zod": "^4.3.5"
 	}
 }

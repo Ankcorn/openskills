@@ -1,0 +1,124 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/*
+ * OpenSkills UI Theme
+ * Aesthetic: Terminal-inspired, monospace-first, utilitarian with warmth
+ */
+
+@theme {
+  /* Color palette from spec (oklch) */
+  --color-gray-100: oklch(96.7% 0.003 264.542);
+  --color-gray-200: oklch(92.8% 0.006 264.531);
+  --color-gray-400: oklch(70.7% 0.022 261.325);
+  --color-gray-500: oklch(55.1% 0.027 264.364);
+  --color-gray-700: oklch(37.3% 0.034 259.733);
+  --color-gray-800: oklch(27.8% 0.033 256.848);
+  --color-gray-900: oklch(20.5% 0 0);
+
+  /* Accent colors */
+  --color-accent: oklch(65% 0.15 145);
+  --color-accent-hover: oklch(55% 0.15 145);
+
+  /* Font family */
+  --font-mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-mono);
+    background-color: var(--color-gray-100);
+    color: var(--color-gray-900);
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-gray-200);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-gray-400);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-gray-500);
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium transition-all duration-150;
+    @apply border-2 border-gray-900 bg-gray-900 text-gray-100;
+    @apply hover:bg-gray-700;
+    @apply focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2;
+    @apply cursor-pointer;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium transition-all duration-150;
+    @apply border-2 border-gray-900 bg-gray-100 text-gray-900;
+    @apply hover:bg-gray-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2;
+    @apply cursor-pointer no-underline;
+  }
+
+  .label {
+    @apply block text-sm font-bold text-gray-700 mb-2;
+  }
+
+  .input {
+    @apply w-full px-4 py-3 text-sm;
+    @apply border-2 border-gray-900 bg-gray-100;
+    @apply placeholder:text-gray-500;
+    @apply focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2;
+  }
+
+  .card {
+    @apply block p-4 border-2 border-gray-900 bg-gray-100 transition-all duration-150;
+    @apply hover:bg-gray-200 hover:translate-x-1 hover:-translate-y-1;
+    @apply hover:shadow-[4px_4px_0_0_var(--color-gray-900)];
+  }
+
+  .skill-card {
+    @apply block p-4 border-2 border-gray-900 bg-gray-100 transition-all duration-150;
+    @apply hover:bg-gray-200 hover:translate-x-1 hover:-translate-y-1;
+    @apply hover:shadow-[4px_4px_0_0_var(--color-gray-900)];
+    @apply flex flex-col gap-1;
+  }
+
+  .skill-card-title {
+    @apply text-base font-bold text-gray-900;
+  }
+
+  .skill-card-meta {
+    @apply text-xs text-gray-500;
+  }
+
+  /* Prose customization for markdown */
+  .prose-skills {
+    @apply prose prose-gray max-w-none;
+    @apply prose-headings:font-bold prose-headings:text-gray-900;
+    @apply prose-p:text-gray-700;
+    @apply prose-a:text-gray-900 prose-a:underline prose-a:underline-offset-2;
+    @apply prose-code:bg-gray-200 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-sm;
+    @apply prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:border-2 prose-pre:border-gray-900;
+  }
+
+  /* Code inside pre blocks should not have the inline code background */
+  .prose-skills pre code {
+    @apply bg-transparent p-0 rounded-none text-inherit;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
