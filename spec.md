@@ -9,10 +9,9 @@ A registry service for versioned "skills" stored as markdown.
 - Skills are stored and served as-is (format-agnostic)
 - Reads are public by default
 - Writes are expected to be protected by Cloudflare Access
-- The same functionality is available via:
-  - HTTP (Hono)
-  - MCP endpoint (built in, enabled by default)
+- HTTP API (Hono)
 - Optional web UI rendered with Hono JSX
+- MCP integration is deferred until the MCP package is ready
 
 Non-goals (MVP): agent-specific plugins, format conversion, a required CLI.
 
@@ -81,15 +80,18 @@ Ship a single npm package: `openskills-ai`.
 
 - Max skill content size (MVP default): 256 KiB (configurable)
 
-### Zod v4
+### Runtime Validation
 
-- Use Zod v4 for runtime validation
-- Centralize all schemas in `src/types/`
-- Derive TS types from schemas (no manual casts)
+- Use `hono-openapi` + `@hono/standard-validator` for request validation and OpenAPI generation.
+- Preferred for this project: **Zod v4**.
+- `hono-openapi` supports multiple validation libs via Standard Schema; we standardize on Zod to keep one schema system across HTTP + persisted-data validation.
+
+- Keep schemas in `src/types/`.
+- Derive TS types from schemas (no casts).
 
 Validate at boundaries and when reading persisted data:
-- HTTP + MCP inputs validated against schemas
-- Persisted data read from storage (e.g. `metadata.json`, `user.json`) validated on read
+- HTTP inputs validated via `validator(...)` from `hono-openapi` using Zod schemas.
+- Persisted data read from storage (e.g. `metadata.json`, `user.json`) validated on read using the same Zod schemas.
 
 Internal write paths do not re-validate once inputs are typed.
 
@@ -142,22 +144,21 @@ logger.info`published ${{ namespace }} / ${{ name }} @ ${{ version }}`;
 
 ### Code Structure
 
-The server exposes the same business logic through HTTP and MCP. MCP must not call back into HTTP via `fetch`.
+The server exposes business logic via HTTP (and an optional UI). MCP integration is added later.
 
 ```
 src/
   core/       # business logic and domain services
   http/       # Hono routes -> validate inputs -> call core
-  mcp/        # MCP tools -> validate inputs -> call core
+  ui/         # SSR UI routes (optional) -> call core
   storage/    # storage backends used by core
   middleware/ # Cloudflare Access auth, etc
-  types/      # Zod v4 schemas + derived TS types
+  types/      # schemas + derived TS types
 ```
 
 ### Config (MVP)
 
 - `workspace`: string identifier used for analytics indexing
-- `enableMcp`: boolean (default true) - if disabled, do not mount `/mcp`
 - `enableUi`: boolean (default false)
 - `maxSkillBytes`: number (default 262144)
 
@@ -234,14 +235,57 @@ Base path: `/api/v1`
 
 ### HTTP Validation & OpenAPI
 
-Use `hono-openapi` to validate endpoints and generate OpenAPI docs.
+Use `hono-openapi` as the validation + OpenAPI layer.
 
-- Use `describeRoute(...)` for docs
-- Use `validator("param"|"query"|"json", schema)` for request validation
-- Schemas come from `src/types/` (Zod v4)
-- In handlers: `c.req.valid(...)` and no casting
+Install:
 
-Expose an OpenAPI document endpoint (e.g. `GET /openapi`) for debugging/client generation.
+```bash
+npm install hono-openapi @hono/standard-validator
+npm install zod
+```
+
+Notes:
+- `hono-openapi` is middleware that generates OpenAPI docs automatically from validation.
+- When using `validator()` from `hono-openapi`, validated `query`/`json`/`param`/`form` inputs are automatically reflected in the OpenAPI request schema.
+  - Do not manually duplicate request schema inside `describeRoute()`.
+
+Pattern (Zod v4):
+
+```ts
+import { Hono } from "hono";
+import { describeRoute, resolver, validator } from "hono-openapi";
+import { z } from "zod";
+
+const querySchema = z.object({
+  name: z.string().optional(),
+});
+
+const responseSchema = z.string();
+
+const app = new Hono();
+
+app.get(
+  "/",
+  describeRoute({
+    description: "Say hello to the user",
+    responses: {
+      200: {
+        description: "Successful response",
+        content: {
+          "text/plain": { schema: resolver(responseSchema) },
+        },
+      },
+    },
+  }),
+  validator("query", querySchema),
+  (c) => {
+    const query = c.req.valid("query");
+    return c.text(`Hello ${query?.name ?? "Hono"}!`);
+  },
+);
+```
+
+Expose an OpenAPI document endpoint (e.g. `GET /openapi`).
 
 ### Skill Operations
 
@@ -283,48 +327,15 @@ Search is a future feature (`GET /search?q=...`).
 
 ---
 
-## MCP Endpoint
+## MCP (Deferred)
 
-Expose the HTTP API as MCP tools using `hono-mcp-server`.
+We will add MCP support later.
 
-- Install: `npm i hono-mcp-server`
-- This adds an MCP endpoint (default: `/mcp`) that maps Hono routes to tools.
-- This is the primary way we "unify" the API and MCP: **HTTP routes are the source of truth**, and MCP tools are derived from them.
-- Enabled by default (configurable).
+- For now, we only ship the HTTP API + UI.
+- HTTP endpoints should be documented and validated via `hono-openapi` so the MCP layer can be derived cleanly later.
 
-### Approach
-
-- Wrap each route handler with `describe("...", handler)` so it becomes a tool.
-- Keep request validation in HTTP (hono-openapi + Zod v4). MCP uses the same validated routes.
-
-### MCP Path
-
-- Default: `/mcp`
-- We will mount it under `/mcp` at the root of the Worker.
-
-### Codemode
-
-- Not required for MVP.
-- Codemode exposes generic `search`/`execute` tools and requires a Worker loader binding.
-
-### Example
-
-```ts
-import { Hono } from "hono";
-import { mcp, describe } from "hono-mcp-server";
-
-const api = new Hono()
-  .get(
-    "/api/v1/skills",
-    describe("List all skills", (c) => c.json([])),
-  );
-
-export default mcp(api, {
-  name: "OpenSkills",
-  version: "1.0.0",
-  mcpPath: "/mcp",
-});
-```
+Planned approach:
+- Use `hono-mcp-server` to expose Hono routes as MCP tools once the package is ready.
 
 ---
 
@@ -500,6 +511,6 @@ ORDER BY downloads DESC
 2. `src/storage/`: `StorageBackend` + memory backend
 3. `src/core/`: publish/get/list/latest/profile update (validate persisted data on read)
 4. `src/http/`: Hono routes calling core + hono-openapi validation
-5. Mount MCP endpoint derived from routes via `hono-mcp-server`
-6. Analytics logging hooks for skill reads
-7. Optional UI (Hono JSX + Tailwind + assets)
+5. Analytics logging hooks for skill reads
+6. Optional UI (Hono JSX + Tailwind + assets)
+7. Add MCP support via `hono-mcp-server` (deferred)
