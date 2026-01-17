@@ -157,7 +157,7 @@ src/
 ### Config (MVP)
 
 - `workspace`: string identifier used for analytics indexing
-- `enableMcp`: boolean (default true)
+- `enableMcp`: boolean (default true) - if disabled, do not mount `/mcp`
 - `enableUi`: boolean (default false)
 - `maxSkillBytes`: number (default 262144)
 
@@ -285,23 +285,46 @@ Search is a future feature (`GET /search?q=...`).
 
 ## MCP Endpoint
 
-The registry exposes an MCP endpoint so any MCP-capable client can query and publish skills.
+Expose the HTTP API as MCP tools using `hono-mcp-server`.
 
-- Enabled by default (configurable)
-- Uses the Cloudflare Agents HTTP transport pattern
-- MCP input schemas are reused from `src/types/`
+- Install: `npm i hono-mcp-server`
+- This adds an MCP endpoint (default: `/mcp`) that maps Hono routes to tools.
+- This is the primary way we "unify" the API and MCP: **HTTP routes are the source of truth**, and MCP tools are derived from them.
+- Enabled by default (configurable).
 
-### Tool Surface (MVP)
+### Approach
 
-Read tools:
-- `list_skills`
-- `search_skills`
-- `get_skill`
-- `get_skill_latest`
+- Wrap each route handler with `describe("...", handler)` so it becomes a tool.
+- Keep request validation in HTTP (hono-openapi + Zod v4). MCP uses the same validated routes.
 
-Write tools:
-- `publish_skill` (requires Cloudflare Access)
-- `update_profile` (requires Cloudflare Access; must match caller namespace)
+### MCP Path
+
+- Default: `/mcp`
+- We will mount it under `/mcp` at the root of the Worker.
+
+### Codemode
+
+- Not required for MVP.
+- Codemode exposes generic `search`/`execute` tools and requires a Worker loader binding.
+
+### Example
+
+```ts
+import { Hono } from "hono";
+import { mcp, describe } from "hono-mcp-server";
+
+const api = new Hono()
+  .get(
+    "/api/v1/skills",
+    describe("List all skills", (c) => c.json([])),
+  );
+
+export default mcp(api, {
+  name: "OpenSkills",
+  version: "1.0.0",
+  mcpPath: "/mcp",
+});
+```
 
 ---
 
@@ -476,7 +499,7 @@ ORDER BY downloads DESC
 1. `src/types/`: schemas + derived TS types (skills, versions, metadata, profiles)
 2. `src/storage/`: `StorageBackend` + memory backend
 3. `src/core/`: publish/get/list/latest/profile update (validate persisted data on read)
-4. `src/mcp/`: tools calling core
-5. `src/http/`: Hono routes calling core + hono-openapi validation
+4. `src/http/`: Hono routes calling core + hono-openapi validation
+5. Mount MCP endpoint derived from routes via `hono-mcp-server`
 6. Analytics logging hooks for skill reads
 7. Optional UI (Hono JSX + Tailwind + assets)
