@@ -208,7 +208,72 @@ Build in order so each feature can be tested via public methods immediately.
 - [ ] Add loading states during form submission (deferred - requires client JS)
 - [x] **Verify**: `npm run typecheck && npm test` passes
 
-## 9. MCP (Deferred)
+## 9. Authentication (`src/auth/`)
+
+Add an auth abstraction and wire it into `createApp` via `authFactory(env)`.
+
+Exactly one provider is enabled per deployment:
+- `github` (production)
+- `cloudflare-access` (production)
+- `password` (local development only)
+
+### 9.1 Auth Abstraction + Injection
+
+- [ ] Define `src/auth/interface.ts` (`Auth`, `AuthFactory`, `AuthEnv`, `AuthVariables`)
+- [ ] Update `createApp(...)` to accept `authFactory` and store it on context (`c.set("auth", ...)`)
+- [ ] Update protected routes to use `c.get("auth").requireAuth` (instead of importing `requireAuth` directly)
+- [ ] Ensure UI routes and API routes both run the same `auth.middleware` so `c.get("identity")` works consistently
+- [ ] **Verify**: `npm run typecheck && npm test` passes
+
+### 9.2 Cloudflare Access Auth (Production)
+
+- [ ] Implement `makeAuthCloudflareAccess(env)`
+- [ ] Verify `Cf-Access-Jwt-Assertion` using `jose` + remote JWK set (`/cdn-cgi/access/certs`)
+- [ ] Extract identity (email/sub) and map to `Identity` with configured namespace strategy
+- [ ] **Test**: valid JWT yields `identity`
+- [ ] **Test**: invalid/missing JWT yields `identity: null` and protected routes 401
+- [ ] **Verify**: `npm run typecheck && npm test` passes
+
+### 9.3 OpenAuth Issuer Routes (GitHub + Password)
+
+- [ ] Install OpenAuth dependency (`@openauthjs/openauth`)
+- [ ] Add `OPENAUTH_KV` namespace binding to `wrangler.jsonc`
+- [ ] Create `src/auth/subjects.ts` (`user: { namespace, email }`)
+- [ ] Implement `createAuthRoutes(env)` that returns a Hono app mounted at `/auth/*`
+- [ ] Mount `/auth` routes in `src/index.ts` (only when provider is `github` or `password`)
+- [ ] **Verify**: `npm run typecheck && npm test` passes
+
+### 9.4 GitHub Auth (Production)
+
+- [ ] Implement `makeAuthGithub(env)` (validates `Authorization: Bearer <OpenAuth access token>`)
+- [ ] Configure OpenAuth `GithubProvider`
+- [ ] In OpenAuth `success` callback, derive namespace from GitHub username (lowercase + validated)
+- [ ] **Test**: token verification yields `identity`
+- [ ] **Verify**: `npm run typecheck && npm test` passes
+
+### 9.5 Password Auth (Local Development Only)
+
+- [ ] Implement `makeAuthPassword(env)` (validates `Authorization: Bearer <OpenAuth access token>`)
+- [ ] Configure OpenAuth `PasswordProvider`
+- [ ] Minimal flows only (signup/login); no email verification or password reset
+- [ ] Namespace is chosen at signup; reject duplicates
+- [ ] **Test**: signup/login works and yields `identity`
+- [ ] **Verify**: `npm run typecheck && npm test` passes
+
+### 9.6 Provider Selection + Env
+
+- [ ] Add `AUTH_PROVIDER` selection in worker entry (`src/index.ts`) and pass env into auth factories
+- [ ] Validate required env vars per provider (fail fast on startup where possible)
+- [ ] **Test**: app boots with each provider configured
+- [ ] **Verify**: `npm run typecheck && npm test` passes
+
+### 9.7 UI Auth Hooks
+
+- [ ] Add login/logout affordances appropriate to provider
+- [ ] Ensure create/edit pages redirect or show auth-required state when unauthenticated
+- [ ] **Verify**: `npm run typecheck && npm test` passes
+
+## 10. MCP (Deferred)
 
 - [ ] Add MCP support via `hono-mcp-server` (when package is ready)
 - [ ] **Verify**: `npm run typecheck && npm test` passes

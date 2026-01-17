@@ -109,19 +109,246 @@ The registry stores skills verbatim and serves them as-is. Frontmatter validatio
 
 ## Identity & Authentication
 
-### Cloudflare Access
+### Overview
 
-- Reads require no auth
-- Write routes are designed to sit behind Cloudflare Access
-- A Hono middleware verifies the Cloudflare Access JWT and attaches identity to the request context
-  - Primary header: `Cf-Access-Jwt-Assertion: <jwt>`
-  - Optional dev fallback: `Authorization: Bearer <jwt>`
+Authentication supports three providers and each deployment configures **exactly one**:
 
-### Authorization (MVP)
+- `github` and `password` use [OpenAuth](https://openauth.js.org/) (issuer mounted at `/auth/*`).
+- `cloudflare-access` validates the `Cf-Access-Jwt-Assertion` JWT forwarded by Cloudflare Access (no issuer UI/routes needed).
 
-- Publishing skills is enforced at the perimeter (Cloudflare Access policy)
-- Profile edits are self-service: a caller can only update their own `skills/{namespace}/user.json`
-  - the namespace must be derived from verified identity
+Supported providers:
+- **GitHub OAuth** - Social login via GitHub
+- **Password** - Email/password authentication (local development only)
+- **Cloudflare Access** - Enterprise SSO via Cloudflare Access JWT validation
+
+### Architecture
+
+The system supports three auth providers, but each deployment enables exactly one.
+
+- For `github` and `password`, we run an OpenAuth issuer mounted at `/auth/*`.
+  - The `password` provider is intended for local development only (self-host / single-developer workflows).
+- For `cloudflare-access`, authentication is performed by Cloudflare at the perimeter and we only validate the forwarded JWT.
+
+In all cases, the API and UI consume a common `Auth` abstraction that extracts an `Identity` and enforces authorization rules.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    openskills-ai Worker                     │
+├─────────────────────────────────────────────────────────────┤
+│  /auth/*     → Auth routes (GitHub or Password only)        │
+│  /api/v1/*   → Skills API (validates identity via auth)     │
+│  /*          → UI (optional)                                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Integration with createApp
+
+Auth is wired into the API via an injected **auth factory**, similar to how core and analytics are injected.
+
+`createApp(...)` accepts an `authFactory(env)` option. This returns an `Auth` implementation that provides:
+- a middleware that extracts `Identity | null` onto request context
+- a route guard middleware used by protected endpoints
+
+This keeps `createApp` decoupled from the chosen auth provider and allows each deployment to select exactly one provider.
+
+#### Auth Abstraction
+
+```ts
+// src/auth/interface.ts
+import type { MiddlewareHandler } from "hono"
+import type { Identity } from "../types/index.js"
+
+export interface AuthEnv {
+  AUTH_PROVIDER: "github" | "password" | "cloudflare-access"
+
+  // GitHub
+  GITHUB_CLIENT_ID?: string
+  GITHUB_CLIENT_SECRET?: string
+
+  // Cloudflare Access
+  CF_ACCESS_TEAM_DOMAIN?: string
+  CF_ACCESS_AUDIENCE?: string
+
+  // OpenAuth
+  OPENAUTH_ISSUER_URL?: string
+}
+
+export interface AuthVariables {
+  identity: Identity | null
+}
+
+export interface Auth<E extends AuthEnv, V extends AuthVariables> {
+  middleware: MiddlewareHandler<{ Bindings: E; Variables: V }>
+  requireAuth: MiddlewareHandler<{ Bindings: E; Variables: V }>
+}
+
+export type AuthFactory<E extends AuthEnv, V extends AuthVariables> = (env: E) => Auth<E, V>
+```
+
+#### createApp Wiring
+
+```ts
+// src/http/app.ts
+export interface CreateAppOptions {
+  coreFactory: (env: AuthEnv) => Core
+  analyticsFactory: (env: AuthEnv) => Analytics
+  authFactory: AuthFactory<AuthEnv, AuthVariables>
+}
+
+export function createApp({ coreFactory, analyticsFactory, authFactory }: CreateAppOptions) {
+  const app = new Hono<AppEnv>().basePath("/api/v1")
+
+  app.use("*", async (c, next) => {
+    c.set("core", coreFactory(c.env))
+    c.set("analytics", analyticsFactory(c.env))
+    c.set("auth", authFactory(c.env))
+    return next()
+  })
+
+  // Extract identity for all routes
+  app.use("*", (c, next) => c.get("auth").middleware(c, next))
+
+  // Protected routes use auth guard
+  app.put("/skills/...", (c, next) => c.get("auth").requireAuth(c, next), handler)
+
+  return app
+}
+```
+
+#### Auth Routes
+
+Auth-related routes (login, callbacks) are mounted at the top-level Worker, not inside `createApp`:
+
+- When `AUTH_PROVIDER` is `github` or `password`: mount OpenAuth issuer at `/auth/*`
+- When `AUTH_PROVIDER` is `cloudflare-access`: no `/auth/*` routes (Access happens at the perimeter)
+
+```ts
+// src/index.ts
+const authRoutes = createAuthRoutes({ env, openauthKv: env.OPENAUTH_KV })
+app.route("/auth", authRoutes)
+
+const apiApp = createApp({ coreFactory, analyticsFactory, authFactory: makeAuth })
+app.route("/", apiApp)
+```
+
+The UI uses the same identity extraction middleware (via `authFactory`) so both UI and API see the same `Identity` shape.
+
+### Token Flow
+
+All providers converge to the same token format:
+
+1. User authenticates via configured provider
+2. OpenAuth issues access token (JWT) + refresh token
+3. Client includes access token in `Authorization: Bearer <token>` header
+4. Skills API validates token and extracts identity
+
+### Subjects
+
+The access token JWT contains a `user` subject with the authenticated identity:
+
+```ts
+import { createSubjects } from "@openauthjs/openauth/subject"
+import { object, string } from "valibot"
+
+export const subjects = createSubjects({
+  user: object({
+    namespace: string(),  // e.g., "anthropic"
+    email: string(),      // e.g., "user@example.com"
+  }),
+})
+```
+
+### Namespace Binding
+
+How namespace is derived from identity depends on the provider:
+
+| Provider | Namespace Derivation |
+|----------|---------------------|
+| **GitHub** | GitHub username, lowercased (e.g., `Anthropic` → `anthropic`) |
+| **Password** | Chosen at signup, validated for uniqueness |
+| **Cloudflare Access** | Configured mapping from email/identity (e.g., email prefix or lookup table) |
+
+### Provider Configuration
+
+Each deployment configures exactly one provider:
+
+```ts
+// GitHub OAuth
+auth: {
+  provider: "github",
+  github: {
+    clientId: "...",
+    clientSecret: "...",
+  }
+}
+
+// Password (basic)
+auth: {
+  provider: "password",
+  password: {
+    // No email verification - just signup/login
+  }
+}
+
+// Cloudflare Access
+auth: {
+  provider: "cloudflare-access",
+  cloudflareAccess: {
+    teamDomain: "https://myteam.cloudflareaccess.com",
+    audience: "aud-tag-from-access-app",
+    // Map CF Access identity to namespace
+    resolveNamespace: (identity) => identity.email.split("@")[0],
+  }
+}
+```
+
+### Cloudflare Access Provider
+
+Cloudflare Access is not a standard OAuth provider - it validates users at the edge and passes a signed JWT to the origin. The custom provider:
+
+1. Reads `Cf-Access-Jwt-Assertion` header (or `CF_Authorization` cookie)
+2. Validates JWT signature against `{teamDomain}/cdn-cgi/access/certs`
+3. Verifies `aud` claim matches configured audience
+4. Extracts identity and issues OpenAuth tokens
+
+This allows Cloudflare Access deployments to use the same token validation as other providers.
+
+### Storage
+
+OpenAuth requires minimal persistent state:
+
+| Provider | Stored Data |
+|----------|-------------|
+| **GitHub** | Refresh tokens only |
+| **Password** | Password hashes (scrypt) + refresh tokens |
+| **Cloudflare Access** | Refresh tokens only |
+
+Uses `CloudflareStorage` adapter with a dedicated KV namespace (`OPENAUTH_KV`).
+
+### Authorization
+
+- **Reads**: No authentication required (public)
+- **Writes**: Requires valid access token
+- **Namespace ownership**: Users can only publish to their bound namespace
+  - Verified by comparing `subject.namespace` to the URL path parameter
+
+### HTTP Routes (Auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/auth/authorize` | Start OAuth flow (GitHub) or show login form (Password) |
+| `POST` | `/auth/token` | Exchange code for tokens |
+| `POST` | `/auth/refresh` | Refresh access token |
+| `GET` | `/auth/.well-known/oauth-authorization-server` | OAuth metadata |
+
+### Dependencies
+
+```bash
+npm install @openauthjs/openauth jose
+```
+
+- `@openauthjs/openauth`: Auth server framework
+- `jose`: JWT validation (used by Cloudflare Access provider)
 
 ---
 
@@ -207,11 +434,16 @@ The server exposes business logic via HTTP (and an optional UI). MCP integration
 
 ```
 src/
+  auth/       # OpenAuth issuer + providers
+    issuer.ts           # OpenAuth server configuration
+    providers/
+      cloudflare-access.ts  # Custom CF Access provider
+    subjects.ts         # Token subject schemas
   core/       # business logic and domain services
   http/       # Hono routes -> validate inputs -> call core
   ui/         # SSR UI routes (optional) -> call core
   storage/    # storage backends used by core
-  middleware/ # Cloudflare Access auth, etc
+  middleware/ # auth token validation, etc
   types/      # schemas + derived TS types
 ```
 
@@ -220,6 +452,10 @@ src/
 - `workspace`: string identifier used for analytics indexing
 - `enableUi`: boolean (default false)
 - `maxSkillBytes`: number (default 262144)
+- `auth`: authentication provider configuration (exactly one of):
+  - `{ provider: "github", github: { clientId, clientSecret } }`
+  - `{ provider: "password" }`
+  - `{ provider: "cloudflare-access", cloudflareAccess: { teamDomain, audience, resolveNamespace } }`
 
 ---
 
@@ -356,28 +592,30 @@ Expose an OpenAPI document endpoint (e.g. `GET /openapi`).
 | `GET` | `/skills/@:namespace/:name/versions` | List versions | No |
 | `GET` | `/skills/@:namespace/:name/versions/:version` | Get specific version content | No |
 | `GET` | `/skills/@:namespace/:name/latest` | Get latest version content | No |
-| `PUT` | `/skills/@:namespace/:name/versions/:version` | Publish new version | Cloudflare Access |
+| `PUT` | `/skills/@:namespace/:name/versions/:version` | Publish new version | Yes (must own namespace) |
 
 ### User Profile Operations
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
 | `GET` | `/users/@:namespace` | Get a namespace profile | No |
-| `PUT` | `/users/@:namespace` | Update the caller's own profile | Cloudflare Access (must match caller namespace) |
+| `PUT` | `/users/@:namespace` | Update the caller's own profile | Yes (must match caller namespace) |
 
 Namespaces are created implicitly on first publish or profile update.
 
 ### Example Requests
 
 ```bash
+# Public reads
 GET /api/v1/skills
 GET /api/v1/skills/@anthropic
 GET /api/v1/skills/@anthropic/docker-compose/latest
 GET /api/v1/skills/@anthropic/docker-compose/versions/1.2.0
 
+# Authenticated write (uses OpenAuth access token)
 PUT /api/v1/skills/@anthropic/docker-compose/versions/1.3.0
 Content-Type: text/markdown
-Cf-Access-Jwt-Assertion: <jwt>
+Authorization: Bearer <access-token>
 
 <markdown content>
 ```
@@ -582,8 +820,21 @@ ORDER BY downloads DESC
 ### Cloudflare Workers (default)
 
 - Deploy as a Worker (Hono)
-- Put writes behind Cloudflare Access
+- Configure one auth provider (GitHub, Password, or Cloudflare Access)
 - Serve static assets via Workers assets when UI is enabled
+- Required KV namespaces:
+  - `SKILLS_KV`: skill content and metadata
+  - `OPENAUTH_KV`: auth state (refresh tokens, password hashes)
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AUTH_PROVIDER` | Yes | One of: `github`, `password`, `cloudflare-access` |
+| `GITHUB_CLIENT_ID` | If GitHub | GitHub OAuth app client ID |
+| `GITHUB_CLIENT_SECRET` | If GitHub | GitHub OAuth app client secret |
+| `CF_ACCESS_TEAM_DOMAIN` | If CF Access | e.g., `https://myteam.cloudflareaccess.com` |
+| `CF_ACCESS_AUDIENCE` | If CF Access | Application AUD tag from Cloudflare Access |
 
 ### Hono plugin
 
@@ -611,4 +862,9 @@ ORDER BY downloads DESC
 4. `src/http/`: Hono routes calling core + hono-openapi validation
 5. Analytics logging hooks for skill reads
 6. Optional UI (Hono JSX + Tailwind + assets)
-7. Add MCP support via `hono-mcp-server` (deferred)
+7. `src/auth/`: OpenAuth integration
+   - GitHub provider (built-in)
+   - Password provider (built-in)
+   - Cloudflare Access provider (custom)
+   - Auth middleware for protected routes
+8. Add MCP support via `hono-mcp-server` (deferred)
