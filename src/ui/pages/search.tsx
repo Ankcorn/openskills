@@ -16,12 +16,17 @@ interface Skill {
 interface SearchPageProps {
 	query: string;
 	results: Skill[];
+	isAuthenticated?: boolean;
 }
 
-export function SearchPage({ query, results }: SearchPageProps) {
+export function SearchPage({
+	query,
+	results,
+	isAuthenticated,
+}: SearchPageProps) {
 	return (
 		<Layout title={`Search: ${query}`}>
-			<Header />
+			<Header isAuthenticated={isAuthenticated} />
 			<SearchBox value={query} />
 
 			<Section title={`results for "${query}"`}>

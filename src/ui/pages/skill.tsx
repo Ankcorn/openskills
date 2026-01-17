@@ -26,9 +26,11 @@ export function SkillPage({
 	const fullPath = `${skillPath}@${version}`;
 	const canEdit = identity?.namespace === namespace;
 
+	const isAuthenticated = identity !== null;
+
 	return (
 		<Layout title={fullPath}>
-			<Header />
+			<Header showCreate={false} isAuthenticated={isAuthenticated} />
 
 			{/* Skill header */}
 			<div class="mb-6">

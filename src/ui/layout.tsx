@@ -36,19 +36,26 @@ export function Layout({ title, children }: LayoutProps) {
 
 interface HeaderProps {
 	showCreate?: boolean;
+	isAuthenticated?: boolean;
 }
 
-export function Header({ showCreate = true }: HeaderProps) {
+export function Header({
+	showCreate = true,
+	isAuthenticated = false,
+}: HeaderProps) {
 	return (
 		<header class="mb-8 flex items-center justify-between">
 			<a href="/" class="text-2xl font-bold text-gray-900 hover:text-gray-700">
 				openskills
 			</a>
-			{showCreate && (
-				<a href="/create" class="btn">
-					create
-				</a>
-			)}
+			{showCreate &&
+				(isAuthenticated ? (
+					<a href="/create" class="btn">
+						create
+					</a>
+				) : (
+					<span class="text-sm text-gray-500">sign in to create</span>
+				))}
 		</header>
 	);
 }

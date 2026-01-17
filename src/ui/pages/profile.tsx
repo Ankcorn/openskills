@@ -10,6 +10,7 @@ interface ProfilePageProps {
 	displayName?: string;
 	bio?: string;
 	skills: Skill[];
+	isAuthenticated?: boolean;
 }
 
 export function ProfilePage({
@@ -17,10 +18,11 @@ export function ProfilePage({
 	displayName,
 	bio,
 	skills,
+	isAuthenticated,
 }: ProfilePageProps) {
 	return (
 		<Layout title={`@${namespace}`}>
-			<Header />
+			<Header isAuthenticated={isAuthenticated} />
 
 			<div class="mb-8">
 				<h1 class="text-3xl font-bold text-gray-900">@{namespace}</h1>

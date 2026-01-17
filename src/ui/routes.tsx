@@ -26,6 +26,7 @@ export function createUIRoutes() {
 	// Home page
 	ui.get("/", async (c) => {
 		const core = c.get("core");
+		const identity = c.get("identity");
 		const skillsResult = await core.listSkills();
 
 		const topSkills = skillsResult.isOk()
@@ -43,7 +44,9 @@ export function createUIRoutes() {
 				)
 			: [];
 
-		return c.html(<HomePage topSkills={topSkills} />);
+		return c.html(
+			<HomePage topSkills={topSkills} isAuthenticated={identity !== null} />,
+		);
 	});
 
 	// Create skill page (GET)
@@ -107,6 +110,7 @@ export function createUIRoutes() {
 	ui.get("/search", async (c) => {
 		const query = c.req.query("q") ?? "";
 		const core = c.get("core");
+		const identity = c.get("identity");
 
 		// Simple search: list all skills and filter by name/namespace containing query
 		const skillsResult = await core.listSkills();
@@ -128,7 +132,13 @@ export function createUIRoutes() {
 			}),
 		);
 
-		return c.html(<SearchPage query={query} results={results} />);
+		return c.html(
+			<SearchPage
+				query={query}
+				results={results}
+				isAuthenticated={identity !== null}
+			/>,
+		);
 	});
 
 	// Edit skill page (GET): /:at/:name/edit
@@ -339,6 +349,7 @@ export function createUIRoutes() {
 		}
 		const namespace = at.slice(1);
 		const core = c.get("core");
+		const identity = c.get("identity");
 
 		if (!namespace) {
 			return c.html(<NotFoundPage message="Invalid namespace." />, 404);
@@ -371,6 +382,7 @@ export function createUIRoutes() {
 				displayName={profile?.displayName}
 				bio={profile?.bio}
 				skills={skills}
+				isAuthenticated={identity !== null}
 			/>,
 		);
 	});

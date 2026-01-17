@@ -16,12 +16,13 @@ interface Skill {
 
 interface HomePageProps {
 	topSkills: Skill[];
+	isAuthenticated?: boolean;
 }
 
-export function HomePage({ topSkills }: HomePageProps) {
+export function HomePage({ topSkills, isAuthenticated }: HomePageProps) {
 	return (
 		<Layout>
-			<Header />
+			<Header isAuthenticated={isAuthenticated} />
 			<SearchBox />
 			<Section title="top skills">
 				<SkillList>
@@ -36,11 +37,19 @@ export function HomePage({ topSkills }: HomePageProps) {
 						))
 					) : (
 						<p class="text-gray-500 text-sm">
-							No skills published yet. Be the first to{" "}
-							<a href="/create" class="underline">
-								create one
-							</a>
-							!
+							No skills published yet.
+							{isAuthenticated ? (
+								<>
+									{" "}
+									Be the first to{" "}
+									<a href="/create" class="underline">
+										create one
+									</a>
+									!
+								</>
+							) : (
+								" Sign in to create one!"
+							)}
 						</p>
 					)}
 				</SkillList>
