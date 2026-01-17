@@ -54,7 +54,9 @@ export function Header({
 						create
 					</a>
 				) : (
-					<span class="text-sm text-gray-500">sign in to create</span>
+					<a href="/login" class="btn">
+						sign in
+					</a>
 				))}
 		</header>
 	);
