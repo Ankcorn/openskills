@@ -1,7 +1,18 @@
 import { Hono } from "hono";
-import { describeRoute, resolver, validator } from "hono-openapi";
+import {
+	describeRoute,
+	generateSpecs,
+	resolver,
+	validator,
+} from "hono-openapi";
 import { z } from "zod";
 import type { Analytics } from "../analytics/index.js";
+import type {
+	Auth,
+	AuthEnv,
+	AuthFactory,
+	AuthVariables,
+} from "../auth/interface.js";
 import type { Core } from "../core/core.js";
 import { ErrorCode } from "../core/errors.js";
 import {
@@ -11,12 +22,36 @@ import {
 	skillNameSchema,
 	userProfileSchema,
 } from "../types/index.js";
-import {
-	type AuthEnv,
-	type AuthVariables,
-	authMiddleware,
-	requireAuth,
-} from "./auth.js";
+
+/**
+ * OpenAPI document configuration
+ */
+const openAPIConfig = {
+	documentation: {
+		info: {
+			title: "OpenSkills API",
+			version: "1.0.0",
+			description:
+				"API for publishing and retrieving skills (markdown documents with semantic versioning)",
+		},
+		servers: [
+			{
+				url: "/api/v1",
+				description: "API v1",
+			},
+		],
+		tags: [
+			{
+				name: "skills",
+				description: "Skill operations",
+			},
+			{
+				name: "users",
+				description: "User profile operations",
+			},
+		],
+	},
+};
 
 /**
  * Schema for namespace param that captures @namespace from URL path.
@@ -28,40 +63,85 @@ const namespaceParamSchema = z
 	.pipe(namespaceSchema);
 
 /**
+ * Extended variables for the HTTP app context.
+ * Includes auth identity plus core and analytics instances.
+ */
+export interface AppVariables extends AuthVariables {
+	core: Core;
+	analytics: Analytics;
+	auth: Auth<AuthEnv, AuthVariables>;
+}
+
+/**
  * Environment bindings for the HTTP app
  */
 export interface AppEnv {
 	Bindings: AuthEnv;
-	Variables: AuthVariables & {
-		core: Core;
-		analytics: Analytics;
-	};
+	Variables: AppVariables;
 }
 
 /**
- * App factory options
+ * App factory options.
+ * Accepts factories for core, analytics, and auth.
  */
 export interface CreateAppOptions {
 	coreFactory: (env: AuthEnv) => Core;
 	analyticsFactory: (env: AuthEnv) => Analytics;
+	authFactory: AuthFactory<AuthEnv, AuthVariables>;
 }
 
 /**
- * Factory to create the HTTP app with the given core and analytics instances.
+ * Full app factory options.
+ * Extends CreateAppOptions with UI routes factory.
+ */
+export interface CreateFullAppOptions extends CreateAppOptions {
+	/** Factory to create UI routes (optional) */
+	// biome-ignore lint/suspicious/noExplicitAny: UI routes have flexible bindings
+	uiRoutesFactory?: () => Hono<any>;
+}
+
+/**
+ * Helper middleware that requires authentication.
+ * Gets the auth instance from context and applies its requireAuth middleware.
+ */
+function requireAuth(): import("hono").MiddlewareHandler<AppEnv> {
+	return async (c, next) => {
+		const auth = c.get("auth");
+		// Call requireAuth - use type assertion since AppEnv extends Auth's expected env
+		return auth.requireAuth(
+			c as unknown as Parameters<typeof auth.requireAuth>[0],
+			next,
+		);
+	};
+}
+
+/**
+ * Factory to create the HTTP app with the given core, analytics, and auth instances.
  */
 export function createApp(options: CreateAppOptions) {
-	const { coreFactory, analyticsFactory } = options;
+	const { coreFactory, analyticsFactory, authFactory } = options;
 	const app = new Hono<AppEnv>().basePath("/api/v1");
 
-	// Inject core and analytics into context
+	// Inject core, analytics, and auth into context
 	app.use("*", async (c, next) => {
+		const auth = authFactory(c.env);
 		c.set("core", coreFactory(c.env));
 		c.set("analytics", analyticsFactory(c.env));
+		c.set("auth", auth);
 		return next();
 	});
 
 	// Auth middleware for all routes (extracts identity if present)
-	app.use("*", authMiddleware());
+	// We apply the middleware after auth is set on context
+	app.use("*", async (c, next) => {
+		const auth = c.get("auth");
+		// Call middleware - it will set c.var.identity
+		// Use type assertion since our AppEnv extends the Auth's expected env
+		return auth.middleware(
+			c as unknown as Parameters<typeof auth.middleware>[0],
+			next,
+		);
+	});
 
 	// =========================================================================
 	// Skills Routes (Read)
@@ -566,6 +646,61 @@ export function createApp(options: CreateAppOptions) {
 			return c.json(result.value);
 		},
 	);
+
+	return app;
+}
+
+/**
+ * Create the full application with API and optional UI.
+ *
+ * This composes:
+ * - API routes at /api/v1/* (includes OpenAPI endpoint)
+ * - UI routes at /* (if uiRoutesFactory is provided, includes auth routes)
+ *
+ * @param options - Factory options for core, analytics, auth, and UI
+ * @returns Complete Hono app ready to be exported as the worker
+ */
+export function createFullApp(options: CreateFullAppOptions) {
+	const { coreFactory, analyticsFactory, authFactory, uiRoutesFactory } =
+		options;
+
+	// Create the API app (at /api/v1) and add OpenAPI endpoint
+	const apiApp = createApp({ coreFactory, analyticsFactory, authFactory });
+
+	// Add OpenAPI endpoint to the API app
+	apiApp.get("/openapi", async (c) => {
+		const spec = await generateSpecs(apiApp, openAPIConfig);
+		return c.json(spec);
+	});
+
+	// Create the root app that combines everything
+	const app = new Hono<AppEnv>();
+
+	// Auth middleware to extract identity from requests
+	app.use("*", async (c, next) => {
+		const auth = authFactory(c.env);
+		c.set("auth", auth);
+		return auth.middleware(
+			c as unknown as Parameters<typeof auth.middleware>[0],
+			next,
+		);
+	});
+
+	// Inject core into context
+	app.use("*", async (c, next) => {
+		c.set("core", coreFactory(c.env));
+		c.set("analytics", analyticsFactory(c.env));
+		return next();
+	});
+
+	// Mount UI routes at root if provided (includes auth routes like /login, /callback)
+	if (uiRoutesFactory) {
+		const uiRoutes = uiRoutesFactory();
+		app.route("/", uiRoutes);
+	}
+
+	// Mount API routes (already has /api/v1 basePath)
+	app.route("/", apiApp);
 
 	return app;
 }

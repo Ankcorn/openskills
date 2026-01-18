@@ -1,7 +1,18 @@
 import { Hono } from "hono";
+import { deleteCookie, setCookie } from "hono/cookie";
 import { marked } from "marked";
+import {
+	createToken,
+	deriveNamespace,
+	exchangeCodeForToken,
+	fetchGitHubUser,
+	getGitHubAuthURL,
+} from "../auth/github.js";
+import { COOKIE_NAMES, getCookieSettings } from "../auth/interface.js";
+import { authLog, maskEmail } from "../auth/logger.js";
 import type { Core } from "../core/core.js";
 import type { Identity } from "../types/index.js";
+import { Layout } from "./layout.js";
 import { CreateSkillPage } from "./pages/create.js";
 import { EditSkillPage } from "./pages/edit.js";
 import { HomePage } from "./pages/home.js";
@@ -10,7 +21,15 @@ import { ProfilePage } from "./pages/profile.js";
 import { SearchPage } from "./pages/search.js";
 import { SkillPage } from "./pages/skill.js";
 
-interface UIEnv {
+/**
+ * Environment for UI routes.
+ */
+export interface UIEnv {
+	Bindings: {
+		GITHUB_CLIENT_ID?: string;
+		GITHUB_CLIENT_SECRET?: string;
+		AUTH_KV?: KVNamespace;
+	};
 	Variables: {
 		core: Core;
 		identity: Identity | null;
@@ -18,10 +37,234 @@ interface UIEnv {
 }
 
 /**
+ * Simple login page
+ */
+function LoginPage({ githubUrl }: { githubUrl: string }) {
+	return (
+		<Layout title="Sign In">
+			<div class="max-w-md mx-auto mt-16 p-6 text-center">
+				<h1 class="text-2xl font-bold text-gray-800 mb-4">Sign In</h1>
+				<p class="text-gray-600 mb-6">Sign in to create and manage skills.</p>
+				<a
+					href={githubUrl}
+					class="inline-block px-6 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 font-medium"
+				>
+					Sign in with GitHub
+				</a>
+			</div>
+		</Layout>
+	);
+}
+
+/**
+ * Logout confirmation page
+ */
+function LogoutPage() {
+	return (
+		<Layout title="Signed Out">
+			<div class="max-w-md mx-auto mt-16 p-6 text-center">
+				<h1 class="text-2xl font-bold text-gray-800 mb-4">Signed Out</h1>
+				<p class="text-gray-600 mb-6">You have been signed out successfully.</p>
+				<a
+					href="/"
+					class="inline-block px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700"
+				>
+					Return Home
+				</a>
+			</div>
+		</Layout>
+	);
+}
+
+/**
+ * Auth error page
+ */
+function AuthErrorPage({ error }: { error: string }) {
+	return (
+		<Layout title="Authentication Error">
+			<div class="max-w-md mx-auto mt-16 p-6">
+				<h1 class="text-2xl font-bold text-red-600 mb-4">
+					Authentication Failed
+				</h1>
+				<p class="text-gray-700 mb-6">{error}</p>
+				<a
+					href="/"
+					class="inline-block px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700"
+				>
+					Return Home
+				</a>
+			</div>
+		</Layout>
+	);
+}
+
+/**
  * Create the UI routes app
  */
 export function createUIRoutes() {
 	const ui = new Hono<UIEnv>();
+
+	// --------------------------------------------------------------------------
+	// Auth routes - Simple GitHub OAuth
+	// --------------------------------------------------------------------------
+
+	// Login page - redirects to GitHub
+	ui.get("/login", (c) => {
+		const returnUrl = c.req.query("return") ?? "/";
+		const clientId = c.env.GITHUB_CLIENT_ID;
+
+		authLog.info`[AUTH:FLOW] Login page requested, return=${returnUrl}`;
+
+		if (!clientId) {
+			authLog.error`[AUTH:FLOW] Login failed: GITHUB_CLIENT_ID not configured`;
+			return c.html(<AuthErrorPage error="GitHub OAuth not configured" />, 500);
+		}
+
+		const url = new URL(c.req.url);
+		const origin = `${url.protocol}//${url.host}`;
+		const redirectUri = `${origin}/callback`;
+
+		const githubUrl = getGitHubAuthURL({
+			clientId,
+			redirectUri,
+			state: returnUrl,
+		});
+
+		authLog.debug`[AUTH:FLOW] Showing GitHub login page`;
+		return c.html(<LoginPage githubUrl={githubUrl} />);
+	});
+
+	// OAuth callback - exchange code for token, create JWT, set cookie
+	ui.get("/callback", async (c) => {
+		const code = c.req.query("code");
+		const state = c.req.query("state") ?? "/";
+		const error = c.req.query("error");
+		const errorDescription = c.req.query("error_description");
+
+		authLog.info`[AUTH:FLOW] OAuth callback received, return=${state}`;
+
+		if (error) {
+			const msg = errorDescription ?? error;
+			authLog.error`[AUTH:FLOW] GitHub OAuth error: ${msg}`;
+			return c.html(<AuthErrorPage error={msg} />, 400);
+		}
+
+		if (!code) {
+			authLog.error`[AUTH:FLOW] No authorization code in callback`;
+			return c.html(
+				<AuthErrorPage error="No authorization code received" />,
+				400,
+			);
+		}
+
+		const clientId = c.env.GITHUB_CLIENT_ID;
+		const clientSecret = c.env.GITHUB_CLIENT_SECRET;
+		const kv = c.env.AUTH_KV;
+
+		if (!clientId || !clientSecret || !kv) {
+			authLog.error`[AUTH:FLOW] GitHub OAuth not configured in callback`;
+			return c.html(<AuthErrorPage error="GitHub OAuth not configured" />, 500);
+		}
+
+		const url = new URL(c.req.url);
+		const origin = `${url.protocol}//${url.host}`;
+		const redirectUri = `${origin}/callback`;
+
+		// Exchange code for GitHub access token
+		authLog.debug`[AUTH:FLOW] Exchanging OAuth code for access token`;
+		const tokenResult = await exchangeCodeForToken({
+			clientId,
+			clientSecret,
+			code,
+			redirectUri,
+		});
+
+		if (tokenResult.isErr()) {
+			authLog.error`[AUTH:FLOW] Token exchange failed: ${tokenResult.error.message}`;
+			return c.html(<AuthErrorPage error={tokenResult.error.message} />, 400);
+		}
+
+		// Fetch GitHub user profile
+		authLog.debug`[AUTH:FLOW] Fetching GitHub user profile`;
+		const userResult = await fetchGitHubUser(tokenResult.value.access_token);
+
+		if (userResult.isErr()) {
+			authLog.error`[AUTH:FLOW] User profile fetch failed: ${userResult.error.message}`;
+			return c.html(<AuthErrorPage error={userResult.error.message} />, 400);
+		}
+
+		// Create our JWT
+		const namespace = deriveNamespace(userResult.value.login);
+		authLog.info`[AUTH:FLOW] Creating JWT for login=${userResult.value.login}, namespace=${namespace}, email=${maskEmail(userResult.value.email)}`;
+
+		const jwtResult = await createToken({
+			kv,
+			namespace,
+			email: userResult.value.email,
+			issuer: origin,
+		});
+
+		if (jwtResult.isErr()) {
+			authLog.error`[AUTH:FLOW] JWT creation failed for namespace=${namespace}`;
+			return c.html(
+				<AuthErrorPage error="Failed to create authentication token" />,
+				500,
+			);
+		}
+
+		// Set cookie
+		const isSecure =
+			c.req.header("x-forwarded-proto") === "https" ||
+			c.req.url.startsWith("https://");
+
+		const cookieSettings = getCookieSettings(isSecure);
+
+		setCookie(c, COOKIE_NAMES.ACCESS, jwtResult.value, {
+			...cookieSettings,
+			maxAge: 60 * 60 * 24 * 30, // 30 days
+		});
+
+		authLog.info`[AUTH:FLOW] Login successful: namespace=${namespace}, email=${maskEmail(userResult.value.email)}, redirecting to ${state}`;
+		// Redirect to return URL
+		return c.redirect(state);
+	});
+
+	// Logout - clear cookies
+	ui.get("/logout", (c) => {
+		const identity = c.get("identity");
+		authLog.info`[AUTH:FLOW] Logout requested: namespace=${identity?.namespace ?? "(anonymous)"}`;
+
+		const isSecure =
+			c.req.header("x-forwarded-proto") === "https" ||
+			c.req.url.startsWith("https://");
+
+		const cookieSettings = getCookieSettings(isSecure);
+
+		deleteCookie(c, COOKIE_NAMES.ACCESS, cookieSettings);
+
+		authLog.info`[AUTH:FLOW] Logout successful: namespace=${identity?.namespace ?? "(anonymous)"}`;
+		return c.html(<LogoutPage />);
+	});
+
+	ui.post("/logout", (c) => {
+		const identity = c.get("identity");
+		authLog.info`[AUTH:FLOW] POST logout requested: namespace=${identity?.namespace ?? "(anonymous)"}`;
+
+		const isSecure =
+			c.req.header("x-forwarded-proto") === "https" ||
+			c.req.url.startsWith("https://");
+
+		const cookieSettings = getCookieSettings(isSecure);
+
+		deleteCookie(c, COOKIE_NAMES.ACCESS, cookieSettings);
+
+		authLog.info`[AUTH:FLOW] POST logout successful: namespace=${identity?.namespace ?? "(anonymous)"}`;
+		return c.redirect("/");
+	});
+
+	// --------------------------------------------------------------------------
+	// Main UI routes
+	// --------------------------------------------------------------------------
 
 	// Home page
 	ui.get("/", async (c) => {
@@ -245,7 +488,6 @@ export function createUIRoutes() {
 	});
 
 	// Skill version page: /:at/:name/versions/:version (most specific, must come first)
-	// Using :at instead of @:namespace to work around Hono routing issues with @ in path params
 	ui.get("/:at/:name/versions/:version", async (c) => {
 		const at = c.req.param("at") ?? "";
 		const name = c.req.param("name") ?? "";
@@ -294,7 +536,6 @@ export function createUIRoutes() {
 	});
 
 	// Skill detail page: /:at/:name
-	// Using :at instead of @:namespace to work around Hono routing issues with @ in path params
 	ui.get("/:at/:name", async (c) => {
 		const at = c.req.param("at") ?? "";
 		const name = c.req.param("name") ?? "";
@@ -340,7 +581,6 @@ export function createUIRoutes() {
 	});
 
 	// Namespace profile page: /:at (least specific, must come last)
-	// Using :at instead of @:namespace to work around Hono routing issues with @ in path params
 	ui.get("/:at", async (c) => {
 		const at = c.req.param("at") ?? "";
 		// Only handle paths that start with @

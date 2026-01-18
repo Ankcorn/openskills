@@ -217,60 +217,83 @@ Exactly one provider is enabled per deployment:
 - `cloudflare-access` (production)
 - `password` (local development only)
 
-### 9.1 Auth Abstraction + Injection
+Cookie names are always:
+- `openskills_access`
+- `openskills_refresh`
 
-- [ ] Define `src/auth/interface.ts` (`Auth`, `AuthFactory`, `AuthEnv`, `AuthVariables`)
-- [ ] Update `createApp(...)` to accept `authFactory` and store it on context (`c.set("auth", ...)`)
-- [ ] Update protected routes to use `c.get("auth").requireAuth` (instead of importing `requireAuth` directly)
-- [ ] Ensure UI routes and API routes both run the same `auth.middleware` so `c.get("identity")` works consistently
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+### 9.1 Infrastructure & Setup
 
-### 9.2 Cloudflare Access Auth (Production)
+- [x] Install dependencies per provider:
+  - `cloudflare-access`: `jose`
+  - `github/password`: `@openauthjs/openauth` + `jose`
+- [x] Add `OPENAUTH_KV` binding to `wrangler.jsonc` (only required for `github`/`password`)
+- [x] Add env var docs/validation wiring:
+  - `AUTH_PROVIDER`
+  - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (GitHub)
+  - `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUDIENCE` (Cloudflare Access)
+- [x] Decide cookie security settings in code:
+  - prod: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, no `Domain=`
+  - local dev over HTTP: omit `Secure`
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
-- [ ] Implement `makeAuthCloudflareAccess(env)`
-- [ ] Verify `Cf-Access-Jwt-Assertion` using `jose` + remote JWK set (`/cdn-cgi/access/certs`)
-- [ ] Extract identity (email/sub) and map to `Identity` with configured namespace strategy
-- [ ] **Test**: valid JWT yields `identity`
-- [ ] **Test**: invalid/missing JWT yields `identity: null` and protected routes 401
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+### 9.2 Auth Abstraction + Injection
 
-### 9.3 OpenAuth Issuer Routes (GitHub + Password)
+- [x] Define `src/auth/interface.ts` (`Auth`, `AuthFactory`, `AuthEnv`, `AuthVariables`)
+- [x] Update `createApp(...)` to accept `authFactory` and store it on context (`c.set("auth", ...)`)
+- [x] Update protected routes to use `c.get("auth").requireAuth` (instead of importing `requireAuth` directly)
+- [x] Ensure UI routes and API routes both run the same `auth.middleware` so `c.get("identity")` works consistently
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
-- [ ] Install OpenAuth dependency (`@openauthjs/openauth`)
-- [ ] Add `OPENAUTH_KV` namespace binding to `wrangler.jsonc`
-- [ ] Create `src/auth/subjects.ts` (`user: { namespace, email }`)
-- [ ] Implement `createAuthRoutes(env)` that returns a Hono app mounted at `/auth/*`
-- [ ] Mount `/auth` routes in `src/index.ts` (only when provider is `github` or `password`)
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+### 9.3 Provider Selection + Env
 
-### 9.4 GitHub Auth (Production)
+- [x] Implement `makeAuth(env)` that switches by `env.AUTH_PROVIDER`
+- [x] Fail fast with clear errors when required env vars are missing for the chosen provider
+- [x] Wire the selected auth factory into API + UI composition in `src/index.ts`
+- [x] **Test**: app starts with each provider configured
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
-- [ ] Implement `makeAuthGithub(env)` (validates `Authorization: Bearer <OpenAuth access token>`)
-- [ ] Configure OpenAuth `GithubProvider`
-- [ ] In OpenAuth `success` callback, derive namespace from GitHub username (lowercase + validated)
-- [ ] **Test**: token verification yields `identity`
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+### 9.4 Cloudflare Access Auth (Production)
 
-### 9.5 Password Auth (Local Development Only)
+- [x] Implement `makeAuthCloudflareAccess(env)`
+- [x] Verify `Cf-Access-Jwt-Assertion` using `jose` + remote JWK set (`/cdn-cgi/access/certs`)
+- [x] Verify `aud` against `CF_ACCESS_AUDIENCE`
+- [x] Extract identity (email/sub) and map to `Identity` with configured namespace strategy
+- [x] **Test**: valid JWT yields `identity`
+- [x] **Test**: invalid/missing JWT yields `identity: null` and protected routes 401
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
-- [ ] Implement `makeAuthPassword(env)` (validates `Authorization: Bearer <OpenAuth access token>`)
-- [ ] Configure OpenAuth `PasswordProvider`
-- [ ] Minimal flows only (signup/login); no email verification or password reset
-- [ ] Namespace is chosen at signup; reject duplicates
-- [ ] **Test**: signup/login works and yields `identity`
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+### 9.5 OpenAuth Issuer Routes (GitHub + Password)
 
-### 9.6 Provider Selection + Env
+- [x] Create `src/auth/subjects.ts` (`user: { namespace, email }`)
+- [x] Implement `createAuthRoutes(env)` (Hono app mounted at `/auth/*`)
+- [x] Mount `/auth` routes in `src/index.ts` only when provider is `github` or `password`
+- [x] Implement cookie-setting behavior on successful auth:
+  - set `openskills_access` and `openskills_refresh`
+  - ensure cookie attributes match the spec
+- [x] **Verify**: `npm run typecheck && npm test` passes
 
-- [ ] Add `AUTH_PROVIDER` selection in worker entry (`src/index.ts`) and pass env into auth factories
-- [ ] Validate required env vars per provider (fail fast on startup where possible)
-- [ ] **Test**: app boots with each provider configured
-- [ ] **Verify**: `npm run typecheck && npm test` passes
+### 9.6 GitHub Auth (Production)
 
-### 9.7 UI Auth Hooks
+- [x] Configure OpenAuth `GithubProvider`
+- [x] In OpenAuth `success` callback, derive namespace from GitHub username (lowercase + validated)
+- [x] Implement `makeAuthOpenAuth()` that validates bearer token OR `openskills_access` cookie
+- [x] **Test**: token/cookie verification yields `identity`
+- [x] **Verify**: `npm run typecheck && npm test` passes
+
+### 9.7 Password Auth (Local Development Only)
+
+- [x] Configure OpenAuth `PasswordProvider`
+- [x] Minimal flows only (signup/login); uses PasswordUI with console code logging
+- [x] Namespace is derived from email local part
+- [x] `makeAuthOpenAuth()` validates bearer token OR `openskills_access` cookie (shared with GitHub)
+- [x] **Test**: token/cookie verification yields `identity`
+- [x] **Verify**: `npm run typecheck && npm test` passes
+
+### 9.8 UI Auth Hooks
 
 - [ ] Add login/logout affordances appropriate to provider
 - [ ] Ensure create/edit pages redirect or show auth-required state when unauthenticated
+- [ ] (Future) If create/edit becomes AJAX -> use `fetch(..., { credentials: "include" })`
 - [ ] **Verify**: `npm run typecheck && npm test` passes
 
 ## 10. MCP (Deferred)

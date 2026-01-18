@@ -3,29 +3,30 @@
 	"name": "open-skills",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-09-06",
+	"compatibility_flags": [],
 	"observability": {
 		"enabled": true
 	},
-
-	// KV namespace for skill storage
-	// Note: For production, replace with actual KV namespace ID
-	// For tests, miniflare auto-creates a test KV via vitest.config.mts
+	"vars": {
+		"AUTH_PROVIDER": "github"
+	},
 	"kv_namespaces": [
 		{
 			"binding": "SKILLS_KV",
-			"id": "REPLACE_WITH_KV_NAMESPACE_ID"
+			"id": "1c8222180e6c4aa8bfad44a73e66a5e1"
+		},
+		{
+			// KV namespace for auth (signing keys)
+			"binding": "AUTH_KV",
+			"id": "c60bbdb22ce44d32bac1f2a1de3f60ae"
 		}
 	],
-
-	// Analytics Engine for download tracking
 	"analytics_engine_datasets": [
 		{
 			"binding": "ANALYTICS",
 			"dataset": "openskills_downloads"
 		}
 	],
-
-	// Static assets for UI (when enabled)
 	"assets": {
 		"directory": "./public/",
 		"binding": "ASSETS"

@@ -1,8 +1,16 @@
-export { type AppEnv, createApp } from "./app.js";
+// Re-export auth types from the auth module for convenience
+export type {
+	Auth,
+	AuthEnv,
+	AuthFactory,
+	AuthVariables,
+} from "../auth/interface.js";
 export {
-	type AuthEnv,
-	type AuthVariables,
-	authMiddleware,
-	requireAuth,
-} from "./auth.js";
+	type AppEnv,
+	type AppVariables,
+	type CreateAppOptions,
+	type CreateFullAppOptions,
+	createApp,
+	createFullApp,
+} from "./app.js";
 export { addOpenAPIEndpoint } from "./openapi.js";

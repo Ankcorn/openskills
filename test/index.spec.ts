@@ -1,7 +1,13 @@
 import { SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+
+import { createTestToken, initTestAuth } from "./helpers/auth.js";
 
 describe("OpenSkills API", () => {
+	// Initialize auth before all tests
+	beforeAll(async () => {
+		await initTestAuth();
+	});
 	describe("GET /api/v1/skills", () => {
 		it("returns empty skills list initially", async () => {
 			const response = await SELF.fetch("https://example.com/api/v1/skills");
@@ -32,13 +38,14 @@ license: MIT
 # My Skill
 
 This is a test skill.`;
+			const authHeader = await createTestToken("testuser");
 			const publishResponse = await SELF.fetch(
 				"https://example.com/api/v1/skills/@testuser/my-skill/versions/1.0.0",
 				{
 					method: "PUT",
 					body: content,
 					headers: {
-						Authorization: "Bearer testuser",
+						Authorization: authHeader,
 						"Content-Type": "text/markdown",
 					},
 				},
@@ -103,13 +110,14 @@ This is a test skill.`;
 		});
 
 		it("returns 403 when publishing to different namespace", async () => {
+			const authHeader = await createTestToken("testuser");
 			const response = await SELF.fetch(
 				"https://example.com/api/v1/skills/@otheruser/my-skill/versions/1.0.0",
 				{
 					method: "PUT",
 					body: "# Test",
 					headers: {
-						Authorization: "Bearer testuser",
+						Authorization: authHeader,
 					},
 				},
 			);
@@ -126,6 +134,7 @@ This is a test skill.`;
 		});
 
 		it("can update own profile", async () => {
+			const authHeader = await createTestToken("testuser2");
 			const response = await SELF.fetch(
 				"https://example.com/api/v1/users/@testuser2",
 				{
@@ -135,7 +144,7 @@ This is a test skill.`;
 						bio: "A test user",
 					}),
 					headers: {
-						Authorization: "Bearer testuser2",
+						Authorization: authHeader,
 						"Content-Type": "application/json",
 					},
 				},
@@ -158,13 +167,14 @@ This is a test skill.`;
 		});
 
 		it("returns 403 when updating another user's profile", async () => {
+			const authHeader = await createTestToken("testuser");
 			const response = await SELF.fetch(
 				"https://example.com/api/v1/users/@otheruser",
 				{
 					method: "PUT",
 					body: JSON.stringify({ displayName: "Hacked" }),
 					headers: {
-						Authorization: "Bearer testuser",
+						Authorization: authHeader,
 						"Content-Type": "application/json",
 					},
 				},
