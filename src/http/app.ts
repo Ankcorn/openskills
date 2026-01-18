@@ -15,6 +15,8 @@ import type {
 } from "../auth/interface.js";
 import type { Core } from "../core/core.js";
 import { ErrorCode } from "../core/errors.js";
+import { rebuildSearchIndex, type Search } from "../search/index.js";
+import type { StorageBackend } from "../storage/interface.js";
 import {
 	namespaceSchema,
 	semverSchema,
@@ -64,11 +66,13 @@ const namespaceParamSchema = z
 
 /**
  * Extended variables for the HTTP app context.
- * Includes auth identity plus core and analytics instances.
+ * Includes auth identity plus core, analytics, search, and storage instances.
  */
 export interface AppVariables extends AuthVariables {
 	core: Core;
 	analytics: Analytics;
+	search: Search;
+	storage: StorageBackend;
 	auth: Auth<AuthEnv, AuthVariables>;
 }
 
@@ -82,11 +86,14 @@ export interface AppEnv {
 
 /**
  * App factory options.
- * Accepts factories for core, analytics, and auth.
+ * Accepts factories for core, analytics, search, and auth.
  */
 export interface CreateAppOptions {
 	coreFactory: (env: AuthEnv) => Core;
 	analyticsFactory: (env: AuthEnv) => Analytics;
+	/** Search factory receives core so it can rebuild the index if missing */
+	searchFactory: (env: AuthEnv, core: Core) => Search;
+	storageFactory: (env: AuthEnv) => StorageBackend;
 	authFactory: AuthFactory<AuthEnv, AuthVariables>;
 }
 
@@ -99,6 +106,9 @@ export interface CreateFullAppOptions extends CreateAppOptions {
 	// biome-ignore lint/suspicious/noExplicitAny: UI routes have flexible bindings
 	uiRoutesFactory?: () => Hono<any>;
 }
+
+// Re-export Search type for consumers
+export type { Search } from "../search/index.js";
 
 /**
  * Helper middleware that requires authentication.
@@ -116,17 +126,26 @@ function requireAuth(): import("hono").MiddlewareHandler<AppEnv> {
 }
 
 /**
- * Factory to create the HTTP app with the given core, analytics, and auth instances.
+ * Factory to create the HTTP app with the given core, analytics, search, and auth instances.
  */
 export function createApp(options: CreateAppOptions) {
-	const { coreFactory, analyticsFactory, authFactory } = options;
+	const {
+		coreFactory,
+		analyticsFactory,
+		searchFactory,
+		storageFactory,
+		authFactory,
+	} = options;
 	const app = new Hono<AppEnv>().basePath("/api/v1");
 
-	// Inject core, analytics, and auth into context
+	// Inject core, analytics, search, storage, and auth into context
 	app.use("*", async (c, next) => {
 		const auth = authFactory(c.env);
-		c.set("core", coreFactory(c.env));
+		const core = coreFactory(c.env);
+		c.set("core", core);
 		c.set("analytics", analyticsFactory(c.env));
+		c.set("search", searchFactory(c.env, core));
+		c.set("storage", storageFactory(c.env));
 		c.set("auth", auth);
 		return next();
 	});
@@ -142,6 +161,58 @@ export function createApp(options: CreateAppOptions) {
 			next,
 		);
 	});
+
+	// =========================================================================
+	// Search
+	// =========================================================================
+
+	// GET /search - Search for skills
+	app.get(
+		"/search",
+		describeRoute({
+			description: "Search for skills by name and description",
+			tags: ["skills"],
+			responses: {
+				200: {
+					description: "Search results",
+					content: {
+						"application/json": {
+							schema: resolver(
+								z.object({
+									query: z.string(),
+									results: z.array(
+										z.object({
+											namespace: namespaceSchema,
+											name: skillNameSchema,
+											description: z.string(),
+											score: z.number(),
+										}),
+									),
+								}),
+							),
+						},
+					},
+				},
+			},
+		}),
+		validator("query", z.object({ q: z.string().min(1) })),
+		async (c) => {
+			const { q } = c.req.valid("query");
+			const search = c.get("search");
+
+			const results = await search.search(q, 20);
+
+			return c.json({
+				query: q,
+				results: results.map((r) => ({
+					namespace: r.namespace,
+					name: r.name,
+					description: r.description,
+					score: r.score,
+				})),
+			});
+		},
+	);
 
 	// =========================================================================
 	// Skills Routes (Read)
@@ -527,6 +598,10 @@ export function createApp(options: CreateAppOptions) {
 				}
 			}
 
+			// Rebuild search index in background
+			const storage = c.get("storage");
+			c.executionCtx.waitUntil(rebuildSearchIndex(storage, core));
+
 			return c.json(result.value, 201);
 		},
 	);
@@ -657,15 +732,27 @@ export function createApp(options: CreateAppOptions) {
  * - API routes at /api/v1/* (includes OpenAPI endpoint)
  * - UI routes at /* (if uiRoutesFactory is provided, includes auth routes)
  *
- * @param options - Factory options for core, analytics, auth, and UI
+ * @param options - Factory options for core, analytics, search, storage, auth, and UI
  * @returns Complete Hono app ready to be exported as the worker
  */
 export function createFullApp(options: CreateFullAppOptions) {
-	const { coreFactory, analyticsFactory, authFactory, uiRoutesFactory } =
-		options;
+	const {
+		coreFactory,
+		analyticsFactory,
+		searchFactory,
+		storageFactory,
+		authFactory,
+		uiRoutesFactory,
+	} = options;
 
 	// Create the API app (at /api/v1) and add OpenAPI endpoint
-	const apiApp = createApp({ coreFactory, analyticsFactory, authFactory });
+	const apiApp = createApp({
+		coreFactory,
+		analyticsFactory,
+		searchFactory,
+		storageFactory,
+		authFactory,
+	});
 
 	// Add OpenAPI endpoint to the API app
 	apiApp.get("/openapi", async (c) => {
@@ -686,10 +773,13 @@ export function createFullApp(options: CreateFullAppOptions) {
 		);
 	});
 
-	// Inject core into context
+	// Inject core, analytics, search, storage into context
 	app.use("*", async (c, next) => {
-		c.set("core", coreFactory(c.env));
+		const core = coreFactory(c.env);
+		c.set("core", core);
 		c.set("analytics", analyticsFactory(c.env));
+		c.set("search", searchFactory(c.env, core));
+		c.set("storage", storageFactory(c.env));
 		return next();
 	});
 

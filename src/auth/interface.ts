@@ -5,8 +5,9 @@ import type { Identity } from "../types/index.js";
  * Auth provider types.
  * - github: GitHub OAuth with our own JWTs
  * - cloudflare-access: Cloudflare Access JWT verification
+ * - none: No authentication (read-only mode for local development)
  */
-export type AuthProvider = "github" | "cloudflare-access";
+export type AuthProvider = "github" | "cloudflare-access" | "none";
 
 /**
  * Environment bindings required for authentication.
@@ -132,6 +133,10 @@ export function validateAuthEnv(env: AuthEnv): void {
 					`Cloudflare Access auth provider requires: ${missing.join(", ")}`,
 				);
 			}
+			break;
+		}
+		case "none": {
+			// No validation needed - read-only mode
 			break;
 		}
 		default: {

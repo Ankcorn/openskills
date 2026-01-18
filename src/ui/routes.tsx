@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { marked } from "marked";
+import type { Analytics } from "../analytics/index.js";
 import {
 	createToken,
 	deriveNamespace,
@@ -11,6 +12,8 @@ import {
 import { COOKIE_NAMES, getCookieSettings } from "../auth/interface.js";
 import { authLog, maskEmail } from "../auth/logger.js";
 import type { Core } from "../core/core.js";
+import { parseFrontmatter } from "../core/frontmatter.js";
+import type { Search } from "../search/index.js";
 import type { Identity } from "../types/index.js";
 import { Layout } from "./layout.js";
 import { CreateSkillPage } from "./pages/create.js";
@@ -20,6 +23,21 @@ import { NotFoundPage } from "./pages/not-found.js";
 import { ProfilePage } from "./pages/profile.js";
 import { SearchPage } from "./pages/search.js";
 import { SkillPage } from "./pages/skill.js";
+
+/**
+ * Strip YAML frontmatter from markdown content.
+ * Returns the body content without the frontmatter block.
+ */
+function stripFrontmatter(content: string): string {
+	if (!content.startsWith("---")) {
+		return content;
+	}
+	const endIndex = content.indexOf("\n---", 3);
+	if (endIndex === -1) {
+		return content;
+	}
+	return content.slice(endIndex + 4).trim();
+}
 
 /**
  * Environment for UI routes.
@@ -32,6 +50,8 @@ export interface UIEnv {
 	};
 	Variables: {
 		core: Core;
+		analytics: Analytics;
+		search: Search;
 		identity: Identity | null;
 	};
 }
@@ -43,12 +63,13 @@ function LoginPage({ githubUrl }: { githubUrl: string }) {
 	return (
 		<Layout title="Sign In">
 			<div class="max-w-md mx-auto mt-16 p-6 text-center">
-				<h1 class="text-2xl font-bold text-gray-800 mb-4">Sign In</h1>
-				<p class="text-gray-600 mb-6">Sign in to create and manage skills.</p>
-				<a
-					href={githubUrl}
-					class="inline-block px-6 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 font-medium"
-				>
+				<h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+					Sign In
+				</h1>
+				<p class="text-gray-500 dark:text-gray-400 mb-6">
+					Sign in to create and manage skills.
+				</p>
+				<a href={githubUrl} class="btn">
 					Sign in with GitHub
 				</a>
 			</div>
@@ -63,12 +84,13 @@ function LogoutPage() {
 	return (
 		<Layout title="Signed Out">
 			<div class="max-w-md mx-auto mt-16 p-6 text-center">
-				<h1 class="text-2xl font-bold text-gray-800 mb-4">Signed Out</h1>
-				<p class="text-gray-600 mb-6">You have been signed out successfully.</p>
-				<a
-					href="/"
-					class="inline-block px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700"
-				>
+				<h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+					Signed Out
+				</h1>
+				<p class="text-gray-500 dark:text-gray-400 mb-6">
+					You have been signed out successfully.
+				</p>
+				<a href="/" class="btn">
 					Return Home
 				</a>
 			</div>
@@ -83,14 +105,11 @@ function AuthErrorPage({ error }: { error: string }) {
 	return (
 		<Layout title="Authentication Error">
 			<div class="max-w-md mx-auto mt-16 p-6">
-				<h1 class="text-2xl font-bold text-red-600 mb-4">
+				<h1 class="text-2xl font-bold text-red-600 dark:text-red-400 mb-4">
 					Authentication Failed
 				</h1>
-				<p class="text-gray-700 mb-6">{error}</p>
-				<a
-					href="/"
-					class="inline-block px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700"
-				>
+				<p class="text-gray-700 dark:text-gray-300 mb-6">{error}</p>
+				<a href="/" class="btn">
 					Return Home
 				</a>
 			</div>
@@ -269,23 +288,53 @@ export function createUIRoutes() {
 	// Home page
 	ui.get("/", async (c) => {
 		const core = c.get("core");
+		const analytics = c.get("analytics");
 		const identity = c.get("identity");
-		const skillsResult = await core.listSkills();
 
-		const topSkills = skillsResult.isOk()
-			? await Promise.all(
-					skillsResult.value.slice(0, 10).map(async (skill) => {
-						const meta = await core.getSkillMetadata(skill);
-						return {
-							namespace: skill.namespace,
-							name: skill.name,
-							version: meta.isOk()
-								? (meta.value.latest ?? undefined)
-								: undefined,
-						};
-					}),
-				)
-			: [];
+		// Try to get top skills from analytics first
+		const analyticsTopSkills = await analytics.getTopSkills(7, 10);
+
+		let topSkills: Array<{
+			namespace: string;
+			name: string;
+			version?: string;
+			downloads?: number;
+		}>;
+
+		if (analyticsTopSkills.length > 0) {
+			// Use analytics data - includes download counts
+			topSkills = await Promise.all(
+				analyticsTopSkills.map(async (skill) => {
+					const meta = await core.getSkillMetadata({
+						namespace: skill.namespace,
+						name: skill.skillName,
+					});
+					return {
+						namespace: skill.namespace,
+						name: skill.skillName,
+						version: meta.isOk() ? (meta.value.latest ?? undefined) : undefined,
+						downloads: skill.downloads,
+					};
+				}),
+			);
+		} else {
+			// Fallback to listing all skills (for new deployments without analytics data)
+			const skillsResult = await core.listSkills();
+			topSkills = skillsResult.isOk()
+				? await Promise.all(
+						skillsResult.value.slice(0, 10).map(async (skill) => {
+							const meta = await core.getSkillMetadata(skill);
+							return {
+								namespace: skill.namespace,
+								name: skill.name,
+								version: meta.isOk()
+									? (meta.value.latest ?? undefined)
+									: undefined,
+							};
+						}),
+					)
+				: [];
+		}
 
 		return c.html(
 			<HomePage topSkills={topSkills} isAuthenticated={identity !== null} />,
@@ -353,23 +402,22 @@ export function createUIRoutes() {
 	ui.get("/search", async (c) => {
 		const query = c.req.query("q") ?? "";
 		const core = c.get("core");
+		const search = c.get("search");
 		const identity = c.get("identity");
 
-		// Simple search: list all skills and filter by name/namespace containing query
-		const skillsResult = await core.listSkills();
-		const allSkills = skillsResult.isOk() ? skillsResult.value : [];
+		// Use Orama search for full-text matching
+		const searchResults = await search.search(query, 20);
 
-		const lowerQuery = query.toLowerCase();
-		const filteredSkills = allSkills.filter(
-			(s) => s.namespace.includes(lowerQuery) || s.name.includes(lowerQuery),
-		);
-
+		// Fetch latest version for each result
 		const results = await Promise.all(
-			filteredSkills.slice(0, 20).map(async (skill) => {
-				const meta = await core.getSkillMetadata(skill);
+			searchResults.map(async (result) => {
+				const meta = await core.getSkillMetadata({
+					namespace: result.namespace,
+					name: result.name,
+				});
 				return {
-					namespace: skill.namespace,
-					name: skill.name,
+					namespace: result.namespace,
+					name: result.name,
 					version: meta.isOk() ? (meta.value.latest ?? undefined) : undefined,
 				};
 			}),
@@ -494,6 +542,7 @@ export function createUIRoutes() {
 		const version = c.req.param("version") ?? "";
 		const namespace = at.startsWith("@") ? at.slice(1) : "";
 		const core = c.get("core");
+		const analytics = c.get("analytics");
 		const identity = c.get("identity");
 
 		if (!namespace || !name || !version) {
@@ -515,22 +564,44 @@ export function createUIRoutes() {
 			);
 		}
 
-		// Get all versions
-		const versionsResult = await core.listVersions({ namespace, name });
+		// Track skill view
+		analytics.trackDownload({
+			namespaceId: contentResult.value.namespaceId,
+			skillId: contentResult.value.skillId,
+			namespace,
+			skillName: name,
+			version,
+			route: "ui-versions",
+			bytes: new TextEncoder().encode(contentResult.value.content).length,
+			requestId: c.req.header("cf-ray"),
+		});
+
+		// Get all versions and view count in parallel
+		const [versionsResult, downloads] = await Promise.all([
+			core.listVersions({ namespace, name }),
+			analytics.getSkillDownloads(contentResult.value.skillId),
+		]);
 		const versions = versionsResult.isOk() ? versionsResult.value : [];
 
 		const content = contentResult.value.content;
-		const contentHtml = await marked.parse(content);
+		const parsed = parseFrontmatter(content);
+		const description = parsed.isOk()
+			? parsed.value.frontmatter.description
+			: undefined;
+		const bodyContent = stripFrontmatter(content);
+		const contentHtml = await marked.parse(bodyContent);
 
 		return c.html(
 			<SkillPage
 				namespace={namespace}
 				name={name}
 				version={version}
+				description={description}
 				content={content}
 				contentHtml={contentHtml}
 				versions={versions}
 				identity={identity}
+				downloads={downloads}
 			/>,
 		);
 	});
@@ -541,10 +612,11 @@ export function createUIRoutes() {
 		const name = c.req.param("name") ?? "";
 		// Only handle paths that start with @
 		if (!at.startsWith("@")) {
-			return c.notFound();
+			return c.html(<NotFoundPage />, 404);
 		}
 		const namespace = at.slice(1);
 		const core = c.get("core");
+		const analytics = c.get("analytics");
 		const identity = c.get("identity");
 
 		if (!namespace || !name) {
@@ -560,22 +632,44 @@ export function createUIRoutes() {
 			);
 		}
 
-		// Get all versions
-		const versionsResult = await core.listVersions({ namespace, name });
+		// Track skill view
+		analytics.trackDownload({
+			namespaceId: latestResult.value.namespaceId,
+			skillId: latestResult.value.skillId,
+			namespace,
+			skillName: name,
+			version: latestResult.value.version,
+			route: "ui-latest",
+			bytes: new TextEncoder().encode(latestResult.value.content).length,
+			requestId: c.req.header("cf-ray"),
+		});
+
+		// Get all versions and view count in parallel
+		const [versionsResult, downloads] = await Promise.all([
+			core.listVersions({ namespace, name }),
+			analytics.getSkillDownloads(latestResult.value.skillId),
+		]);
 		const versions = versionsResult.isOk() ? versionsResult.value : [];
 
 		const content = latestResult.value.content;
-		const contentHtml = await marked.parse(content);
+		const parsed = parseFrontmatter(content);
+		const description = parsed.isOk()
+			? parsed.value.frontmatter.description
+			: undefined;
+		const bodyContent = stripFrontmatter(content);
+		const contentHtml = await marked.parse(bodyContent);
 
 		return c.html(
 			<SkillPage
 				namespace={namespace}
 				name={name}
 				version={latestResult.value.version}
+				description={description}
 				content={content}
 				contentHtml={contentHtml}
 				versions={versions}
 				identity={identity}
+				downloads={downloads}
 			/>,
 		);
 	});
@@ -585,10 +679,11 @@ export function createUIRoutes() {
 		const at = c.req.param("at") ?? "";
 		// Only handle paths that start with @
 		if (!at.startsWith("@")) {
-			return c.notFound();
+			return c.html(<NotFoundPage />, 404);
 		}
 		const namespace = at.slice(1);
 		const core = c.get("core");
+		const analytics = c.get("analytics");
 		const identity = c.get("identity");
 
 		if (!namespace) {
@@ -609,9 +704,15 @@ export function createUIRoutes() {
 					namespace,
 					name: skillName,
 				});
+				// Get download count if we have the skill ID
+				const skillId = meta.isOk() ? meta.value.id : undefined;
+				const downloads = skillId
+					? await analytics.getSkillDownloads(skillId)
+					: undefined;
 				return {
 					name: skillName,
 					version: meta.isOk() ? (meta.value.latest ?? undefined) : undefined,
+					downloads,
 				};
 			}),
 		);

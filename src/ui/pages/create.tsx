@@ -23,9 +23,13 @@ export function CreateSkillPage({
 		return (
 			<Layout title="Create Skill">
 				<Header showCreate={false} />
-				<div class="border-2 border-gray-900 bg-white p-8 text-center">
-					<h1 class="mb-4 text-xl font-bold">Authentication Required</h1>
-					<p class="text-gray-600">You must be signed in to create a skill.</p>
+				<div class="border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-neutral-800 p-8 text-center">
+					<h1 class="mb-4 text-xl font-bold text-gray-900 dark:text-gray-100">
+						Authentication Required
+					</h1>
+					<p class="text-gray-600 dark:text-gray-300">
+						You must be signed in to create a skill.
+					</p>
 				</div>
 			</Layout>
 		);
@@ -34,23 +38,25 @@ export function CreateSkillPage({
 	const defaultNamespace = values?.namespace ?? identity.namespace;
 	const defaultName = values?.name ?? "";
 	const defaultVersion = values?.version ?? "1.0.0";
+	// Always provide a template - use entered name or placeholder "my-skill"
 	const defaultContent =
-		values?.content ??
-		(defaultName ? generateFrontmatterTemplate(defaultName) : "");
+		values?.content ?? generateFrontmatterTemplate(defaultName || "my-skill");
 
 	return (
 		<Layout title="Create Skill">
 			<Header showCreate={false} />
 
 			<div class="mb-6">
-				<h1 class="text-2xl font-bold text-gray-900">Create a new skill</h1>
-				<p class="mt-1 text-sm text-gray-500">
+				<h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">
+					Create a new skill
+				</h1>
+				<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 					Skills are versioned markdown files with YAML frontmatter.
 				</p>
 			</div>
 
 			{error && (
-				<div class="mb-6 border-2 border-red-500 bg-red-50 p-4 text-red-700">
+				<div class="mb-6 border-2 border-red-500 bg-red-50 dark:bg-red-900/20 p-4 text-red-700 dark:text-red-400">
 					{error}
 				</div>
 			)}
@@ -67,9 +73,9 @@ export function CreateSkillPage({
 						name="namespace"
 						value={defaultNamespace}
 						readonly
-						class="input bg-gray-100"
+						class="input opacity-70"
 					/>
-					<p class="mt-1 text-xs text-gray-500">
+					<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
 						Skills are published under your namespace.
 					</p>
 				</div>
@@ -89,7 +95,7 @@ export function CreateSkillPage({
 						placeholder="my-skill"
 						class="input"
 					/>
-					<p class="mt-1 text-xs text-gray-500">
+					<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
 						Lowercase letters, numbers, and hyphens only. Example:
 						docker-compose
 					</p>
@@ -110,7 +116,7 @@ export function CreateSkillPage({
 						placeholder="1.0.0"
 						class="input"
 					/>
-					<p class="mt-1 text-xs text-gray-500">
+					<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
 						Semantic version (e.g., 1.0.0, 2.1.0-beta.1)
 					</p>
 				</div>
@@ -126,11 +132,10 @@ export function CreateSkillPage({
 						required
 						rows={20}
 						class="input font-mono text-sm"
-						placeholder={generateFrontmatterTemplate("my-skill")}
 					>
 						{defaultContent}
 					</textarea>
-					<p class="mt-1 text-xs text-gray-500">
+					<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
 						Markdown with YAML frontmatter. The name field must match the skill
 						name above.
 					</p>

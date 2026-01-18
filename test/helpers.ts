@@ -80,10 +80,9 @@ export async function seedSkill(
 ): Promise<void> {
 	const identity = makeIdentity({ namespace: options.namespace });
 	// If content is provided but doesn't have frontmatter, wrap it
-	const content =
-		options.content && options.content.startsWith("---")
-			? options.content
-			: makeSkillContent(options.name, options.content ?? `# ${options.name}`);
+	const content = options.content?.startsWith("---")
+		? options.content
+		: makeSkillContent(options.name, options.content ?? `# ${options.name}`);
 
 	const result = await core.publishSkill({
 		namespace: options.namespace,

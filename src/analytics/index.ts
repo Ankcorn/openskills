@@ -14,6 +14,10 @@
  * - double1: bytes
  */
 
+import { Logger } from "hatchlet";
+
+const log = new Logger({ dev: process.env.NODE_ENV !== "production" });
+
 /**
  * Download event data
  */
@@ -28,8 +32,8 @@ export interface DownloadEvent {
 	skillName: string;
 	/** Version string */
 	version: string;
-	/** Route type */
-	route: "versions" | "latest";
+	/** Route type: API routes (versions, latest) or UI routes (ui-latest, ui-versions) */
+	route: "versions" | "latest" | "ui-latest" | "ui-versions";
 	/** Content size in bytes */
 	bytes: number;
 	/** Optional request ID (e.g., cf-ray) */
@@ -48,6 +52,16 @@ export interface AnalyticsDataset {
 }
 
 /**
+ * Top skill result from analytics query.
+ */
+export interface TopSkill {
+	namespace: string;
+	skillName: string;
+	skillId: string;
+	downloads: number;
+}
+
+/**
  * Analytics service for tracking skill downloads.
  */
 export interface Analytics {
@@ -55,14 +69,40 @@ export interface Analytics {
 	 * Track a skill download event.
 	 */
 	trackDownload(event: DownloadEvent): void;
+
+	/**
+	 * Get top downloaded skills.
+	 * Returns empty array if analytics querying is not configured.
+	 */
+	getTopSkills(days?: number, limit?: number): Promise<TopSkill[]>;
+
+	/**
+	 * Get download count for a specific skill.
+	 * Returns 0 if analytics querying is not configured.
+	 */
+	getSkillDownloads(skillId: string, days?: number): Promise<number>;
+}
+
+/**
+ * Configuration for analytics querying.
+ */
+export interface AnalyticsQueryConfig {
+	/** Cloudflare account ID */
+	accountId: string;
+	/** API token with Analytics Engine read permissions */
+	apiToken: string;
 }
 
 /**
  * Create an analytics service instance.
  *
- * If dataset is null, events are silently dropped (useful for testing).
+ * @param dataset - Analytics Engine dataset for writing events (null to disable writes)
+ * @param queryConfig - Configuration for querying analytics (null to disable queries)
  */
-export function makeAnalytics(dataset: AnalyticsDataset | null): Analytics {
+export function makeAnalytics(
+	dataset: AnalyticsDataset | null,
+	queryConfig?: AnalyticsQueryConfig | null,
+): Analytics {
 	return {
 		trackDownload(event: DownloadEvent): void {
 			if (!dataset) {
@@ -87,6 +127,109 @@ export function makeAnalytics(dataset: AnalyticsDataset | null): Analytics {
 				doubles: [event.bytes],
 			});
 		},
+
+		async getTopSkills(days = 7, limit = 10): Promise<TopSkill[]> {
+			if (!queryConfig) {
+				return [];
+			}
+
+			const query = `
+SELECT
+  blob6 AS namespace,
+  blob7 AS skill_name,
+  blob2 AS skill_id,
+  SUM(_sample_interval) AS downloads
+FROM openskills_downloads
+WHERE timestamp > NOW() - INTERVAL '${days}' DAY
+GROUP BY namespace, skill_name, skill_id
+ORDER BY downloads DESC
+LIMIT ${limit}
+FORMAT JSON
+`.trim();
+
+			try {
+				const response = await fetch(
+					`https://api.cloudflare.com/client/v4/accounts/${queryConfig.accountId}/analytics_engine/sql`,
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${queryConfig.apiToken}`,
+							"Content-Type": "text/plain",
+						},
+						body: query,
+					},
+				);
+
+				if (!response.ok) {
+					const text = await response.text();
+					log.warn`[ANALYTICS] getTopSkills failed: status=${response.status}, body=${text}`;
+					return [];
+				}
+
+				const result = (await response.json()) as {
+					data?: Array<{
+						namespace: string;
+						skill_name: string;
+						skill_id: string;
+						downloads: number;
+					}>;
+				};
+
+				return (result.data ?? []).map((row) => ({
+					namespace: row.namespace,
+					skillName: row.skill_name,
+					skillId: row.skill_id,
+					downloads: row.downloads,
+				}));
+			} catch (err) {
+				log.error`[ANALYTICS] getTopSkills error: ${err instanceof Error ? err.message : String(err)}`;
+				return [];
+			}
+		},
+
+		async getSkillDownloads(skillId: string, days = 30): Promise<number> {
+			if (!queryConfig) {
+				return 0;
+			}
+
+			const query = `
+SELECT
+  SUM(_sample_interval) AS downloads
+FROM openskills_downloads
+WHERE timestamp > NOW() - INTERVAL '${days}' DAY
+  AND blob2 = '${skillId}'
+FORMAT JSON
+`.trim();
+
+			try {
+				const response = await fetch(
+					`https://api.cloudflare.com/client/v4/accounts/${queryConfig.accountId}/analytics_engine/sql`,
+					{
+						method: "POST",
+						headers: {
+							Authorization: `Bearer ${queryConfig.apiToken}`,
+							"Content-Type": "text/plain",
+						},
+						body: query,
+					},
+				);
+
+				if (!response.ok) {
+					const text = await response.text();
+					log.warn`[ANALYTICS] getSkillDownloads failed: skillId=${skillId}, status=${response.status}, body=${text}`;
+					return 0;
+				}
+
+				const result = (await response.json()) as {
+					data?: Array<{ downloads: number }>;
+				};
+
+				return result.data?.[0]?.downloads ?? 0;
+			} catch (err) {
+				log.error`[ANALYTICS] getSkillDownloads error: skillId=${skillId}, error=${err instanceof Error ? err.message : String(err)}`;
+				return 0;
+			}
+		},
 	};
 }
 
@@ -97,6 +240,12 @@ export function makeNoOpAnalytics(): Analytics {
 	return {
 		trackDownload(): void {
 			// No-op
+		},
+		async getTopSkills(): Promise<TopSkill[]> {
+			return [];
+		},
+		async getSkillDownloads(): Promise<number> {
+			return 0;
 		},
 	};
 }

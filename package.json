@@ -25,6 +25,7 @@
 	},
 	"dependencies": {
 		"@hono/standard-validator": "^0.2.2",
+		"@orama/orama": "^3.1.18",
 		"@tailwindcss/cli": "^4.1.18",
 		"@tailwindcss/typography": "^0.5.19",
 		"better-result": "^2.3.0",

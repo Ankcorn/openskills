@@ -54,9 +54,13 @@ export function EditSkillPage({
 		return (
 			<Layout title={`Edit ${skillPath}`}>
 				<Header />
-				<div class="border-2 border-gray-900 bg-white p-8 text-center">
-					<h1 class="mb-4 text-xl font-bold">Authentication Required</h1>
-					<p class="text-gray-600">You must be signed in to edit this skill.</p>
+				<div class="border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-neutral-800 p-8 text-center">
+					<h1 class="mb-4 text-xl font-bold text-gray-900 dark:text-gray-100">
+						Authentication Required
+					</h1>
+					<p class="text-gray-600 dark:text-gray-300">
+						You must be signed in to edit this skill.
+					</p>
 				</div>
 			</Layout>
 		);
@@ -67,9 +71,11 @@ export function EditSkillPage({
 		return (
 			<Layout title={`Edit ${skillPath}`}>
 				<Header />
-				<div class="border-2 border-gray-900 bg-white p-8 text-center">
-					<h1 class="mb-4 text-xl font-bold">Permission Denied</h1>
-					<p class="text-gray-600">
+				<div class="border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-neutral-800 p-8 text-center">
+					<h1 class="mb-4 text-xl font-bold text-gray-900 dark:text-gray-100">
+						Permission Denied
+					</h1>
+					<p class="text-gray-600 dark:text-gray-300">
 						You can only edit skills in your own namespace (@
 						{identity.namespace}).
 					</p>
@@ -87,19 +93,22 @@ export function EditSkillPage({
 			<Header />
 
 			<div class="mb-6">
-				<h1 class="text-2xl font-bold text-gray-900">
+				<h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">
 					Publish new version of{" "}
-					<a href={`/@${namespace}/${name}`} class="hover:text-gray-700">
+					<a
+						href={`/@${namespace}/${name}`}
+						class="hover:text-gray-700 dark:hover:text-gray-200"
+					>
 						{skillPath}
 					</a>
 				</h1>
-				<p class="mt-1 text-sm text-gray-500">
+				<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
 					Current version: {currentVersion}
 				</p>
 			</div>
 
 			{error && (
-				<div class="mb-6 border-2 border-red-500 bg-red-50 p-4 text-red-700">
+				<div class="mb-6 border-2 border-red-500 bg-red-50 dark:bg-red-900/20 p-4 text-red-700 dark:text-red-400">
 					{error}
 				</div>
 			)}
@@ -131,24 +140,26 @@ export function EditSkillPage({
 						/>
 					</div>
 					<div class="mt-2 flex gap-2">
-						<span class="text-xs text-gray-500">Suggestions:</span>
+						<span class="text-xs text-gray-500 dark:text-gray-400">
+							Suggestions:
+						</span>
 						<button
 							type="button"
-							class="text-xs text-gray-700 hover:text-gray-900 underline"
+							class="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
 							onclick={`document.getElementById('version').value='${suggestions.patch}'`}
 						>
 							{suggestions.patch} (patch)
 						</button>
 						<button
 							type="button"
-							class="text-xs text-gray-700 hover:text-gray-900 underline"
+							class="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
 							onclick={`document.getElementById('version').value='${suggestions.minor}'`}
 						>
 							{suggestions.minor} (minor)
 						</button>
 						<button
 							type="button"
-							class="text-xs text-gray-700 hover:text-gray-900 underline"
+							class="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
 							onclick={`document.getElementById('version').value='${suggestions.major}'`}
 						>
 							{suggestions.major} (major)
@@ -170,7 +181,7 @@ export function EditSkillPage({
 					>
 						{defaultContent}
 					</textarea>
-					<p class="mt-1 text-xs text-gray-500">
+					<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
 						Edit the skill content. The frontmatter name must remain "{name}".
 					</p>
 				</div>

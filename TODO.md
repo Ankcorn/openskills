@@ -296,7 +296,75 @@ Cookie names are always:
 - [ ] (Future) If create/edit becomes AJAX -> use `fetch(..., { credentials: "include" })`
 - [ ] **Verify**: `npm run typecheck && npm test` passes
 
-## 10. MCP (Deferred)
+## 10. Search (`src/search/`)
+
+Full-text search using Orama with KV persistence and in-memory caching.
+
+### 10.1 Setup
+
+- [x] Install dependencies: `npm install @orama/orama` (Note: plugin-data-persistence removed due to ESM issues in Workers)
+- [x] **Verify**: `npm run typecheck && npm test` passes
+
+### 10.2 Core Search Module
+
+- [x] Create `src/search/index.ts` - module exports
+- [x] Create `src/search/schema.ts` - Orama index schema
+  - Fields: `namespace`, `name`, `description`, `skillId`
+- [x] Create `src/search/index-builder.ts` - `rebuildSearchIndex(storage, core)` function
+  - Fetch all skills via `core.listSkills()`
+  - For each skill, get latest content and parse frontmatter for description
+  - Create Orama index and insert all skills
+  - Persist to KV at key `search:index` using Orama's built-in `save()` (JSON serialization)
+  - Log: `[SEARCH] Rebuilding search index`
+  - Log: `[SEARCH] Index rebuilt with ${{ count }} skills`
+- [x] Create `src/search/search.ts` - search functionality
+  - Module-level `cachedIndex` variable for in-memory caching
+  - `getSearchIndex(storage)` - load index from KV, cache in memory
+  - Log: `[SEARCH] Loading search index from ${{ source }}` (source: `"memory"` or `"kv"`)
+  - `searchSkills(index, term, limit)` - execute Orama search, return results with scores
+- [x] Define `Search` interface for dependency injection (similar to `Analytics`)
+- [x] **Test**: index creation with sample skills
+- [x] **Test**: search returns relevant results (name match)
+- [x] **Test**: search returns relevant results (description match)
+- [x] **Test**: search handles empty index gracefully
+- [x] **Test**: search handles missing index in KV (returns empty results)
+- [x] **Verify**: `npm run typecheck && npm test` passes
+
+### 10.3 Integrate with Publish
+
+- [x] Update publish handler in `src/http/app.ts`
+  - After successful publish, call `c.executionCtx.waitUntil(rebuildSearchIndex(storage, core))`
+  - Index rebuilds in background, publish responds immediately
+- [x] **Verify**: `npm run typecheck && npm test` passes
+
+### 10.4 API Endpoint
+
+- [x] Add `GET /api/v1/search?q=:query` route in `src/http/app.ts`
+  - Load search index via `search.search()`
+  - Execute search with Orama (limit 20 results)
+  - Return JSON response with query and results
+- [x] Add OpenAPI documentation for search endpoint
+- [x] **Verify**: `npm run typecheck && npm test` passes
+
+### 10.5 UI Search
+
+- [x] Update `/search` route in `src/ui/routes.tsx`
+  - Replace current in-memory filter with Orama search
+  - Load index via `search.search()`
+  - Execute search and map results to `SearchPage` props
+- [x] **Verify**: `npm run typecheck && npm test` passes
+
+### 10.6 Final Verification
+
+- [x] Run `npm run lint` - fix any linting errors
+- [x] Run `npm run typecheck` - fix any type errors
+- [x] Run `npm run test` - all tests pass
+- [ ] Manual test: publish a skill, verify index rebuilds (check logs)
+- [ ] Manual test: search via API returns relevant results
+- [ ] Manual test: search via UI returns relevant results
+- [ ] Manual test: verify cache logging shows `source: "memory"` on repeated searches
+
+## 11. MCP (Deferred)
 
 - [ ] Add MCP support via `hono-mcp-server` (when package is ready)
 - [ ] **Verify**: `npm run typecheck && npm test` passes

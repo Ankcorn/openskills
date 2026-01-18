@@ -3,6 +3,7 @@ import { Header, Layout, Section, SkillCard, SkillList } from "../layout.js";
 interface Skill {
 	name: string;
 	version?: string;
+	downloads?: number;
 }
 
 interface ProfilePageProps {
@@ -25,9 +26,17 @@ export function ProfilePage({
 			<Header isAuthenticated={isAuthenticated} />
 
 			<div class="mb-8">
-				<h1 class="text-3xl font-bold text-gray-900">@{namespace}</h1>
-				{displayName && <p class="mt-1 text-lg text-gray-700">{displayName}</p>}
-				{bio && <p class="mt-2 text-sm text-gray-500">{bio}</p>}
+				<h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">
+					@{namespace}
+				</h1>
+				{displayName && (
+					<p class="mt-1 text-lg text-gray-700 dark:text-gray-200">
+						{displayName}
+					</p>
+				)}
+				{bio && (
+					<p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{bio}</p>
+				)}
 			</div>
 
 			<Section title="skills">
@@ -38,10 +47,13 @@ export function ProfilePage({
 								namespace={namespace}
 								name={skill.name}
 								version={skill.version}
+								downloads={skill.downloads}
 							/>
 						))
 					) : (
-						<p class="text-gray-500 text-sm">No skills published yet.</p>
+						<p class="text-gray-500 dark:text-gray-400 text-sm">
+							No skills published yet.
+						</p>
 					)}
 				</SkillList>
 			</Section>

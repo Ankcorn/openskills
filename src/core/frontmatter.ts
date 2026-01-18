@@ -95,7 +95,8 @@ function parseSimpleYaml(
 	yaml: string,
 ): Result<Record<string, unknown>, FrontmatterError> {
 	const result: Record<string, unknown> = {};
-	const lines = yaml.split("\n");
+	// Normalize line endings (CRLF -> LF) to handle Windows-style input
+	const lines = yaml.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 
 	let currentKey: string | null = null;
 	let currentObject: Record<string, string> | null = null;

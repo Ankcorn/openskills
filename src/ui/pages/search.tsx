@@ -40,7 +40,7 @@ export function SearchPage({
 							/>
 						))
 					) : (
-						<p class="text-gray-500 text-sm">
+						<p class="text-gray-500 dark:text-gray-400 text-sm">
 							No skills found matching "{query}".
 						</p>
 					)}

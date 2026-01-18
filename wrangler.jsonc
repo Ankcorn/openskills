@@ -8,7 +8,8 @@
 		"enabled": true
 	},
 	"vars": {
-		"AUTH_PROVIDER": "github"
+		"AUTH_PROVIDER": "github",
+		"CF_ACCOUNT_ID": "92a369ba0c773e307fbf9b8814730c09"
 	},
 	"kv_namespaces": [
 		{
