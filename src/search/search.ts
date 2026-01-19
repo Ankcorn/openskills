@@ -1,9 +1,9 @@
 /**
  * Search functionality with in-memory caching.
  *
- * The search index is loaded from KV and cached in a module-level variable.
- * Worker isolates are ephemeral, so the cache naturally refreshes,
- * reducing KV lookups by ~4-5x.
+ * The search index is loaded from KV and cached in a module-level variable
+ * with a 30-second TTL. After TTL expires, the next search will fetch fresh
+ * data from KV.
  */
 
 import { load, search } from "@orama/orama";
@@ -15,6 +15,9 @@ import { createSearchIndex, type SearchIndex } from "./schema.js";
 
 const log = new Logger({ dev: process.env.NODE_ENV !== "production" });
 
+/** Cache TTL in milliseconds (30 seconds) */
+const CACHE_TTL_MS = 30_000;
+
 /**
  * Search result item.
  */
@@ -22,7 +25,6 @@ export interface SearchResult {
 	namespace: string;
 	name: string;
 	description: string;
-	skillId: string;
 	score: number;
 }
 
@@ -39,9 +41,17 @@ export interface Search {
 
 // Module-level cache for the search index
 let cachedIndex: SearchIndex | null = null;
+let cacheTimestamp: number = 0;
 
 // Track if we've already attempted to rebuild (to avoid repeated rebuilds)
 let rebuildAttempted = false;
+
+/**
+ * Check if the cache is still valid (within TTL).
+ */
+function isCacheValid(): boolean {
+	return cachedIndex !== null && Date.now() - cacheTimestamp < CACHE_TTL_MS;
+}
 
 /**
  * Load the search index from KV with in-memory caching.
@@ -51,7 +61,7 @@ async function getSearchIndex(
 	storage: StorageBackend,
 	core?: Core,
 ): Promise<SearchIndex | null> {
-	if (cachedIndex !== null) {
+	if (isCacheValid()) {
 		log.debug`[SEARCH] Loading search index from ${{ source: "memory" }}`;
 		return cachedIndex;
 	}
@@ -77,6 +87,7 @@ async function getSearchIndex(
 	const index = createSearchIndex();
 	await load(index, JSON.parse(indexJson));
 	cachedIndex = index;
+	cacheTimestamp = Date.now();
 	return cachedIndex;
 }
 
@@ -103,7 +114,6 @@ export function makeSearch(storage: StorageBackend, core?: Core): Search {
 				namespace: hit.document.namespace,
 				name: hit.document.name,
 				description: hit.document.description,
-				skillId: hit.document.skillId,
 				score: hit.score,
 			}));
 		},
@@ -127,5 +137,6 @@ export function makeNoOpSearch(): Search {
  */
 export function clearSearchCache(): void {
 	cachedIndex = null;
+	cacheTimestamp = 0;
 	rebuildAttempted = false;
 }

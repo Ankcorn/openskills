@@ -53,7 +53,7 @@ export function EditSkillPage({
 	if (!identity) {
 		return (
 			<Layout title={`Edit ${skillPath}`}>
-				<Header />
+				<Header showCreate={false} />
 				<div class="border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-neutral-800 p-8 text-center">
 					<h1 class="mb-4 text-xl font-bold text-gray-900 dark:text-gray-100">
 						Authentication Required
@@ -70,7 +70,7 @@ export function EditSkillPage({
 	if (identity.namespace !== namespace) {
 		return (
 			<Layout title={`Edit ${skillPath}`}>
-				<Header />
+				<Header showCreate={false} />
 				<div class="border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-neutral-800 p-8 text-center">
 					<h1 class="mb-4 text-xl font-bold text-gray-900 dark:text-gray-100">
 						Permission Denied
@@ -90,7 +90,7 @@ export function EditSkillPage({
 
 	return (
 		<Layout title={`Edit ${skillPath}`}>
-			<Header />
+			<Header showCreate={false} />
 
 			<div class="mb-6">
 				<h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">

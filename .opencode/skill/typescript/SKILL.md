@@ -59,6 +59,19 @@ return parsed.match({
 });
 ```
 
+### Domain errors
+
+Use typed domain errors with an error code for pattern matching at boundaries.
+
+```ts
+// Return domain errors from core
+return Result.err(Errors.notFound("Skill"));
+return Result.err(Errors.forbidden("cannot publish to another namespace"));
+
+// Match on error.code at HTTP/MCP boundary
+if (result.error.code === ErrorCode.NOT_FOUND) return c.json({...}, 404);
+```
+
 ## Anti-patterns (do not do these)
 
 - `any` (including `eslint-disable` or ts-ignore style escapes)

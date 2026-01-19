@@ -1,3 +1,4 @@
+import { Logger } from "hatchlet";
 import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { marked } from "marked";
@@ -13,7 +14,8 @@ import { COOKIE_NAMES, getCookieSettings } from "../auth/interface.js";
 import { authLog, maskEmail } from "../auth/logger.js";
 import type { Core } from "../core/core.js";
 import { parseFrontmatter } from "../core/frontmatter.js";
-import type { Search } from "../search/index.js";
+import { rebuildSearchIndex, type Search } from "../search/index.js";
+import type { StorageBackend } from "../storage/interface.js";
 import type { Identity } from "../types/index.js";
 import { Layout } from "./layout.js";
 import { CreateSkillPage } from "./pages/create.js";
@@ -52,6 +54,7 @@ export interface UIEnv {
 		core: Core;
 		analytics: Analytics;
 		search: Search;
+		storage: StorageBackend;
 		identity: Identity | null;
 	};
 }
@@ -291,49 +294,53 @@ export function createUIRoutes() {
 		const analytics = c.get("analytics");
 		const identity = c.get("identity");
 
-		// Try to get top skills from analytics first
-		const analyticsTopSkills = await analytics.getTopSkills(7, 10);
-
-		let topSkills: Array<{
+		const topSkills: Array<{
 			namespace: string;
 			name: string;
 			version?: string;
 			downloads?: number;
-		}>;
+		}> = [];
 
-		if (analyticsTopSkills.length > 0) {
-			// Use analytics data - includes download counts
-			topSkills = await Promise.all(
-				analyticsTopSkills.map(async (skill) => {
-					const meta = await core.getSkillMetadata({
+		// Track which skills we've added to avoid duplicates
+		const seen = new Set<string>();
+
+		// First, add skills from analytics (these have view counts)
+		const analyticsTopSkills = await analytics.getTopSkills(7, 10);
+		for (const skill of analyticsTopSkills) {
+			const key = `${skill.namespace}/${skill.skillName}`;
+			if (!seen.has(key)) {
+				seen.add(key);
+				const meta = await core.getSkillMetadata({
+					namespace: skill.namespace,
+					name: skill.skillName,
+				});
+				topSkills.push({
+					namespace: skill.namespace,
+					name: skill.skillName,
+					version: meta.isOk() ? (meta.value.latest ?? undefined) : undefined,
+					downloads: skill.downloads,
+				});
+			}
+		}
+
+		// Then, add skills from KV (fills in skills without views yet)
+		const skillsResult = await core.listSkills();
+		if (skillsResult.isOk()) {
+			for (const skill of skillsResult.value) {
+				const key = `${skill.namespace}/${skill.name}`;
+				if (!seen.has(key)) {
+					seen.add(key);
+					const meta = await core.getSkillMetadata(skill);
+					topSkills.push({
 						namespace: skill.namespace,
-						name: skill.skillName,
-					});
-					return {
-						namespace: skill.namespace,
-						name: skill.skillName,
+						name: skill.name,
 						version: meta.isOk() ? (meta.value.latest ?? undefined) : undefined,
-						downloads: skill.downloads,
-					};
-				}),
-			);
-		} else {
-			// Fallback to listing all skills (for new deployments without analytics data)
-			const skillsResult = await core.listSkills();
-			topSkills = skillsResult.isOk()
-				? await Promise.all(
-						skillsResult.value.slice(0, 10).map(async (skill) => {
-							const meta = await core.getSkillMetadata(skill);
-							return {
-								namespace: skill.namespace,
-								name: skill.name,
-								version: meta.isOk()
-									? (meta.value.latest ?? undefined)
-									: undefined,
-							};
-						}),
-					)
-				: [];
+						// No downloads - these haven't been viewed yet
+					});
+				}
+				// Stop once we have enough skills
+				if (topSkills.length >= 10) break;
+			}
 		}
 
 		return c.html(
@@ -351,6 +358,7 @@ export function createUIRoutes() {
 	ui.post("/create", async (c) => {
 		const identity = c.get("identity");
 		const core = c.get("core");
+		const storage = c.get("storage");
 
 		if (!identity) {
 			return c.html(<CreateSkillPage identity={null} />, 401);
@@ -393,6 +401,11 @@ export function createUIRoutes() {
 				400,
 			);
 		}
+
+		// Rebuild search index in background
+		const log = new Logger({ dev: process.env.NODE_ENV !== "production" });
+		log.info`[UI] Triggering search index rebuild after create`;
+		c.executionCtx.waitUntil(rebuildSearchIndex(storage, core));
 
 		// Redirect to the new skill page
 		return c.redirect(`/@${namespace}/${name}`);
@@ -471,6 +484,7 @@ export function createUIRoutes() {
 		const namespace = at.startsWith("@") ? at.slice(1) : "";
 		const identity = c.get("identity");
 		const core = c.get("core");
+		const storage = c.get("storage");
 
 		if (!namespace || !paramName) {
 			return c.html(<NotFoundPage message="Invalid skill path." />, 404);
@@ -530,6 +544,11 @@ export function createUIRoutes() {
 				400,
 			);
 		}
+
+		// Rebuild search index in background
+		const log = new Logger({ dev: process.env.NODE_ENV !== "production" });
+		log.info`[UI] Triggering search index rebuild after edit`;
+		c.executionCtx.waitUntil(rebuildSearchIndex(storage, core));
 
 		// Redirect to the skill page
 		return c.redirect(`/@${namespace}/${paramName}`);

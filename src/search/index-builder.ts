@@ -53,7 +53,7 @@ export async function rebuildSearchIndex(
 			continue;
 		}
 
-		const { content, skillId } = latestResult.value;
+		const { content } = latestResult.value;
 		const parsed = parseFrontmatter(content);
 
 		if (parsed.isErr()) {
@@ -67,7 +67,6 @@ export async function rebuildSearchIndex(
 			namespace: skill.namespace,
 			name: skill.name,
 			description: frontmatter.description,
-			skillId,
 		});
 
 		indexed++;

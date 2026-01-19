@@ -17,7 +17,6 @@ export const searchSchema = {
 	namespace: "string" as const,
 	name: "string" as const,
 	description: "string" as const,
-	skillId: "string" as const,
 };
 
 /**
@@ -27,7 +26,6 @@ export interface SearchDocument {
 	namespace: string;
 	name: string;
 	description: string;
-	skillId: string;
 }
 
 /**

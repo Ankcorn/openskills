@@ -42,29 +42,16 @@ export function SkillPage({
 		return count.toString();
 	};
 
-	// Header action buttons
-	const headerAction = (
-		<div class="flex gap-2">
-			{canEdit && (
-				<a href={`/@${namespace}/${name}/edit`} class="btn">
-					new version
-				</a>
-			)}
-			<button
-				type="button"
-				class="btn copy-btn"
-				data-copy-target="skill-content"
-				data-copy-text={content}
-			>
-				<span class="copy-label">copy</span>
-				<span class="copy-success hidden">copied!</span>
-			</button>
-		</div>
-	);
+	// Header action - only show new version button if user can edit
+	const headerAction = canEdit ? (
+		<a href={`/@${namespace}/${name}/edit`} class="btn">
+			new version
+		</a>
+	) : undefined;
 
 	return (
 		<Layout title={fullPath}>
-			<Header action={headerAction} />
+			<Header action={headerAction} showCreate={!canEdit} />
 
 			{/* Skill header */}
 			<div class="mb-6">
@@ -113,28 +100,41 @@ export function SkillPage({
 				)}
 			</div>
 
-			{/* Version selector - show last 3 versions */}
-			{versions.length > 1 && (
-				<div class="mb-6">
-					<span class="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-						Version
-					</span>
-					<div class="mt-2 flex flex-wrap gap-2">
-						{versions.slice(-3).map((v) => (
-							<a
-								href={`/@${namespace}/${name}/versions/${v}`}
-								class={`px-3 py-1 text-sm border-2 border-gray-900 dark:border-gray-100 transition-colors ${
-									v === version
-										? "bg-gray-900 text-gray-100 dark:bg-gray-100 dark:text-neutral-900"
-										: "bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700"
-								}`}
-							>
-								{v}
-							</a>
-						))}
+			{/* Version selector and copy button row */}
+			<div class="mb-6 flex items-end justify-between">
+				{versions.length > 1 ? (
+					<div>
+						<span class="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+							Version
+						</span>
+						<div class="mt-2 flex flex-wrap gap-2">
+							{versions.slice(-3).map((v) => (
+								<a
+									href={`/@${namespace}/${name}/versions/${v}`}
+									class={`px-3 py-1 text-sm border-2 border-gray-900 dark:border-gray-100 transition-colors ${
+										v === version
+											? "bg-gray-900 text-gray-100 dark:bg-gray-100 dark:text-neutral-900"
+											: "bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700"
+									}`}
+								>
+									{v}
+								</a>
+							))}
+						</div>
 					</div>
-				</div>
-			)}
+				) : (
+					<div />
+				)}
+				<button
+					type="button"
+					class="btn copy-btn"
+					data-copy-target="skill-content"
+					data-copy-text={content}
+				>
+					<span class="copy-label">copy</span>
+					<span class="copy-success hidden">copied!</span>
+				</button>
+			</div>
 
 			{/* Markdown content */}
 			<article
